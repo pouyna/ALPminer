@@ -1,0 +1,38 @@
+cff-version: 1.2.0
+message: "If you use ALPminer in your research, please cite it as below."
+title: ALPminer
+abstract: >-
+  An open-source, resumable pipeline that mines atomic layer deposition (ALD)
+  and atomic layer etching (ALE) process recipes from the published literature
+  into AI-ready datasets, using the LLM provider of your choice through a
+  no-code web dashboard.
+type: software
+version: 1.0.0
+date-released: "2026-07-23"
+license: MIT
+authors:
+  - family-names: Navabi
+    given-names: Pouyan
+    affiliation: "University of Illinois Chicago, Chicago, IL, United States"
+    orcid: "https://orcid.org/0009-0002-9033-3599
+  - family-names: Takoudis
+    given-names: "Christos G."
+    affiliation: "University of Illinois Chicago, Chicago, IL, United States"
+    orcid: "https://orcid.org/0000-0003-2420-8511"
+repository-code: "https://github.com/pouyna/ALPminer"
+url: "https://github.com/pouyna/ALPminer"
+keywords:
+  - atomic layer deposition
+  - atomic layer etching
+  - materials science
+  - artificial intelligence
+  - large language models
+  - dataset
+  - text mining
+  - FAIR data
+
+doi: "10.5281/zenodo.21519943"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.21519943"
+    description: "Concept DOI (always resolves to the latest release)"
