@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alpminer"
+version = "1.0.0"
+description = "Resumable pipeline: harvest literature metadata from OpenAlex, download open-access PDFs, extract process recipes (ALD, ALE, or your own domain) with the LLM provider of your choice, and build a JSON/CSV recipe database."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Pouyan Navabi" }]
+dependencies = [
+    "requests>=2.31",
+    "pydantic>=2.5",
+    "pymupdf>=1.24",
+    "anthropic>=0.40",
+    "google-genai>=1.0",
+]
+
+[project.optional-dependencies]
+# dev tooling: tests + the browser used for GUI screenshots/smoke checks
+dev = ["pytest>=8.0", "playwright>=1.40"]
+# OCR fallback for scanned PDFs; also needs the Tesseract binary on PATH
+# (Windows installer: https://github.com/UB-Mannheim/tesseract/wiki)
+ocr = ["pytesseract>=0.3.10", "Pillow>=10.0"]
+
+[project.scripts]
+alpminer = "alpminer.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["alpminer*"]
+
+[tool.setuptools.package-data]
+alpminer = ["static/*.html", "profiles/*.toml"]

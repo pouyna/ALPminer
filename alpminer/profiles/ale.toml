@@ -1,0 +1,192 @@
+# Built-in profile: ALE process recipes (atomic layer etching)
+
+name = "ale"
+label = "ALE recipes"
+description = "Etch recipes: modification/removal chemistry, EPC, synergy."
+record_noun = "recipes"
+default_query = '"atomic layer etching" OR "atomic layer etch"'
+
+triage_prompt = """You classify materials-science papers for a literature \
+mining pipeline. Decide whether the authors of THIS paper themselves \
+performed an atomic layer etching (ALE) experiment, thermal or plasma, and \
+report at least some process parameters. Reviews, purely computational \
+studies, continuous plasma etching without cyclic self-limiting steps, and \
+papers that only characterize samples etched elsewhere do not qualify. \
+Answer by calling the triage_result tool exactly once. The text may be \
+truncated; judge from what is given."""
+
+extraction_prompt = """You are an expert in atomic layer etching (ALE) \
+extracting process recipes from one journal article for a curated research \
+database. Follow these rules exactly.
+
+1. Extract only cyclic, (quasi-)self-limiting ALE processes, thermal or \
+plasma/ion-assisted, experimentally performed by the authors of THIS paper. \
+Exclude: parameters merely cited from other papers or review tables; purely \
+computational work; continuous (non-cyclic) etching; samples etched by \
+collaborators or vendors; deposition-only (ALD) processes.
+2. Report one record per distinct etch chemistry (material + modification \
+step + removal step). If a parameter was systematically varied (e.g. ion \
+energy or temperature series), report the range in the corresponding window \
+field and the stated optimal value in the main field; do not create one \
+record per sweep point.
+3. Use the required units: temperatures in degrees C, times in seconds, \
+pressure in mTorr, etch per cycle in angstrom/cycle, ion energy in eV, \
+plasma power in W, synergy in percent. Convert when the paper uses other \
+units. Preserve original wording in *_as_reported / notes.
+4. Never guess or infer a value that is not stated; use null.
+5. evidence_location must be a short pointer (section/table/figure numbers), \
+never a quoted passage.
+6. Set confidence between 0 and 1 for how completely and unambiguously each \
+record is reported.
+7. If no qualifying process exists, set relevant to false with an empty \
+records list.
+
+Record your answer by calling the record_findings tool exactly once."""
+
+[units]
+temperatures = "degC"
+times = "s"
+pressure = "mTorr"
+etch_per_cycle = "angstrom/cycle"
+ion_energy = "eV"
+plasma_power = "W"
+synergy = "percent"
+
+[[field]]
+name = "material"
+type = "string"
+required = true
+description = "Material being etched, as a chemical formula where possible, e.g. 'Al2O3', 'Si', 'SiO2', 'HfO2', 'GaN', 'W'."
+
+[[field]]
+name = "ale_type"
+type = "string"
+description = "'thermal ALE', 'plasma ALE', 'ion-assisted ALE', 'photo-assisted ALE', etc."
+
+[[field]]
+name = "modification_reactant"
+type = "string"
+description = "Surface-modification (step A) reactant, e.g. 'HF', 'Cl2', 'SF6 plasma', 'BCl3', 'O2 plasma (oxidation)'."
+
+[[field]]
+name = "removal_reactant"
+type = "string"
+description = "Removal (step B) agent, e.g. 'Ar+ ions', 'trimethylaluminum', 'Sn(acac)2', 'DMAC', 'Ar plasma with bias', 'ligand exchange with TiCl4'."
+
+[[field]]
+name = "additional_reactants"
+type = "array"
+description = "Any further reactants/steps in a supercycle; null if none."
+
+[[field]]
+name = "substrate"
+type = "string"
+description = "Substrate / film stack etched, incl. how the film was grown if stated."
+
+[[field]]
+name = "reactor"
+type = "string"
+description = "Reactor make/model or type, e.g. 'Oxford FlexAL', 'home-built ICP with gridded ion source'."
+
+[[field]]
+name = "temperature_c"
+type = "number"
+description = "Process temperature in degrees C (stated optimal/typical if a series was studied). Convert K to C."
+
+[[field]]
+name = "temperature_window_c"
+type = "string"
+description = "Temperature range studied or stated ALE window, in C, e.g. '250-325'."
+
+[[field]]
+name = "ion_energy_ev"
+type = "number"
+description = "Ion energy / bias voltage in eV for the removal step (plasma ALE). Stated optimal if a series."
+
+[[field]]
+name = "ion_energy_window_ev"
+type = "string"
+description = "Ion-energy window studied/stated, in eV, e.g. '40-60'."
+
+[[field]]
+name = "plasma_power_w"
+type = "number"
+description = "Source plasma power in W, if stated."
+
+[[field]]
+name = "pressure_mtorr"
+type = "number"
+description = "Operating pressure in mTorr (convert: 1 Torr = 1000 mTorr, 1 Pa = 7.5 mTorr)."
+
+[[field]]
+name = "step_a_time_s"
+type = "number"
+description = "Modification step exposure time in seconds."
+
+[[field]]
+name = "purge_a_s"
+type = "number"
+description = "Purge after the modification step, seconds."
+
+[[field]]
+name = "step_b_time_s"
+type = "number"
+description = "Removal step time in seconds."
+
+[[field]]
+name = "purge_b_s"
+type = "number"
+description = "Purge after the removal step, seconds."
+
+[[field]]
+name = "cycle_sequence"
+type = "string"
+description = "Timing sequence as reported, e.g. '1 s HF / 30 s purge / 1 s TMA / 30 s purge'."
+
+[[field]]
+name = "number_of_cycles"
+type = "integer"
+description = "Number of ALE cycles for the main reported result."
+
+[[field]]
+name = "epc_angstrom_per_cycle"
+type = "number"
+description = "Etch per cycle in angstrom/cycle (convert nm/cycle by x10)."
+
+[[field]]
+name = "epc_as_reported"
+type = "string"
+description = "EPC exactly as reported with units and conditions, e.g. '0.61 A/cycle at 300 C'."
+
+[[field]]
+name = "synergy_percent"
+type = "number"
+description = "ALE synergy in percent, if reported."
+
+[[field]]
+name = "selectivity"
+type = "string"
+description = "Etch selectivity vs other materials, as stated, e.g. 'infinite vs SiO2', '10:1 over Si3N4'."
+
+[[field]]
+name = "post_etch_roughness"
+type = "string"
+description = "Surface roughness result if stated, e.g. 'RMS 0.2 nm after 50 cycles (AFM)'."
+
+[[field]]
+name = "notes"
+type = "string"
+description = "Anything important that does not fit the fields above."
+
+[[field]]
+name = "evidence_location"
+type = "string"
+max_len = 200
+description = "Short pointer to where the parameters appear, e.g. 'Sec. 2; Table 1'. Do NOT quote passages."
+
+[[field]]
+name = "confidence"
+type = "number"
+minimum = 0.0
+maximum = 1.0
+description = "0-1: how completely and unambiguously this record was reported."

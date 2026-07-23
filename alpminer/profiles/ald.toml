@@ -1,0 +1,207 @@
+# Built-in profile: ALD process recipes (atomic layer deposition)
+
+name = "ald"
+label = "ALD recipes"
+description = "Deposition recipes: precursors, temperatures, timings, GPC."
+record_noun = "recipes"
+default_query = '"atomic layer deposition" OR "atomic layer epitaxy"'
+
+triage_prompt = """You classify materials-science papers for a literature \
+mining pipeline. Decide whether the authors of THIS paper themselves \
+performed an atomic layer deposition (ALD or PEALD) experiment and report at \
+least some process parameters. Reviews, purely computational studies, and \
+papers that only characterize films deposited elsewhere do not qualify. \
+Answer by calling the triage_result tool exactly once. The text may be \
+truncated; judge from what is given."""
+
+extraction_prompt = """You are an expert in atomic layer deposition (ALD) \
+extracting process recipes from one journal article for a curated research \
+database. Follow these rules exactly.
+
+1. Extract only ALD-family processes (thermal ALD, plasma-enhanced ALD, \
+spatial ALD, photo-assisted ALD, ALD supercycles) that were experimentally \
+performed by the authors of THIS paper. Exclude: parameters merely cited \
+from other papers or review tables of the literature; purely computational \
+or simulated processes; films obtained from collaborators or vendors; CVD, \
+PVD, sputtering, sol-gel, or ALE-only processes.
+2. Report one record per distinct process chemistry (material + precursor \
+pair + reactor). If a parameter was systematically varied (e.g. a \
+temperature series), report the range in temperature_window_c and the stated \
+optimal or most-used value in deposition_temperature_c; do not create one \
+record per point in a parameter sweep.
+3. Use the required units: temperatures in degrees C, times in seconds, \
+pressure in Torr, growth per cycle in angstrom/cycle, plasma power in W, \
+thickness in nm. Convert when the paper uses other units (K, mbar, Pa, \
+nm/cycle). Preserve the original wording in the *_as_reported / notes fields.
+4. Never guess or infer a value that is not stated; use null. Do not copy \
+values from the paper's citations of other work.
+5. evidence_location must be a short pointer (section/table/figure numbers), \
+never a quoted passage.
+6. Set confidence between 0 and 1 for how completely and unambiguously each \
+record is reported.
+7. If no qualifying process exists, set relevant to false with an empty \
+records list.
+
+Record your answer by calling the record_findings tool exactly once."""
+
+[units]
+temperatures = "degC"
+times = "s"
+pressure = "Torr"
+growth_per_cycle = "angstrom/cycle"
+plasma_power = "W"
+film_thickness = "nm"
+
+[[field]]
+name = "material"
+type = "string"
+required = true
+description = "Deposited film material as a chemical formula where possible, e.g. 'Al2O3', 'TiO2', 'HfO2', 'Pt', 'TiN'."
+
+[[field]]
+name = "technique"
+type = "string"
+description = "Deposition variant: 'thermal ALD', 'PEALD', 'spatial ALD', 'photo-assisted ALD', 'ALD (supercycle)', etc."
+
+[[field]]
+name = "metal_precursor"
+type = "string"
+description = "Main metal/semimetal precursor, full chemical name as written by the authors, e.g. 'trimethylaluminum'."
+
+[[field]]
+name = "metal_precursor_abbrev"
+type = "string"
+description = "Common abbreviation if given, e.g. 'TMA', 'TDMAT', 'TEMAH', 'TiCl4'."
+
+[[field]]
+name = "co_reactant"
+type = "string"
+description = "Co-reactant / second precursor, e.g. 'water', 'ozone', 'O2 plasma', 'NH3', 'H2S'."
+
+[[field]]
+name = "co_reactant_abbrev"
+type = "string"
+description = "Abbreviation if any, e.g. 'H2O', 'O3'."
+
+[[field]]
+name = "additional_reactants"
+type = "array"
+description = "Extra precursors/reactants for doped films or supercycles; null if none."
+
+[[field]]
+name = "substrate"
+type = "string"
+description = "Substrate(s) used, e.g. 'Si(100) with native oxide'."
+
+[[field]]
+name = "reactor"
+type = "string"
+description = "Reactor make/model or type, e.g. 'Beneq TFS-200', 'home-built hot-wall viscous-flow reactor'."
+
+[[field]]
+name = "carrier_gas"
+type = "string"
+description = "Carrier/purge gas and flow if stated, e.g. 'N2, 20 sccm'."
+
+[[field]]
+name = "deposition_temperature_c"
+type = "number"
+description = "Substrate/deposition temperature in degrees C. If a series was studied, put the stated optimal/typical value here and the full range in temperature_window_c. Convert K to C. Null if not stated."
+
+[[field]]
+name = "temperature_window_c"
+type = "string"
+description = "Temperature range studied or stated ALD window, in C, e.g. '150-300'."
+
+[[field]]
+name = "precursor_source_temperature_c"
+type = "number"
+description = "Precursor bubbler/source temperature in C, if stated."
+
+[[field]]
+name = "pulse_metal_s"
+type = "number"
+description = "Metal-precursor pulse (dose) time in seconds."
+
+[[field]]
+name = "purge_metal_s"
+type = "number"
+description = "Purge time after the metal-precursor pulse, seconds."
+
+[[field]]
+name = "pulse_coreactant_s"
+type = "number"
+description = "Co-reactant pulse time in seconds (for PEALD, the plasma exposure time)."
+
+[[field]]
+name = "purge_coreactant_s"
+type = "number"
+description = "Purge time after the co-reactant step, seconds."
+
+[[field]]
+name = "cycle_sequence"
+type = "string"
+description = "Timing sequence as reported, e.g. '0.1 s / 10 s / 0.05 s / 10 s' or 't1/t2/t3/t4'."
+
+[[field]]
+name = "number_of_cycles"
+type = "integer"
+description = "Number of ALD cycles for the main reported film."
+
+[[field]]
+name = "pressure_torr"
+type = "number"
+description = "Reactor operating pressure in Torr (convert: 1 mbar = 0.750 Torr, 1 Pa = 0.0075 Torr)."
+
+[[field]]
+name = "plasma_power_w"
+type = "number"
+description = "Plasma power in W (PEALD only)."
+
+[[field]]
+name = "plasma_gas"
+type = "string"
+description = "Plasma gas/mixture (PEALD only), e.g. 'O2', 'N2/H2'."
+
+[[field]]
+name = "gpc_angstrom_per_cycle"
+type = "number"
+description = "Growth per cycle in angstrom/cycle (convert nm/cycle by x10)."
+
+[[field]]
+name = "gpc_as_reported"
+type = "string"
+description = "GPC exactly as reported with units, e.g. '0.11 nm/cycle at 200 C'."
+
+[[field]]
+name = "film_thickness_nm"
+type = "number"
+description = "Final film thickness in nm for the main sample."
+
+[[field]]
+name = "crystallinity"
+type = "string"
+description = "As-deposited crystallinity/phase if stated, e.g. 'amorphous', 'anatase', 'polycrystalline cubic'."
+
+[[field]]
+name = "application"
+type = "string"
+description = "Stated target application, e.g. 'gate dielectric'."
+
+[[field]]
+name = "notes"
+type = "string"
+description = "Anything important that does not fit the fields above (dopant ratios, in-situ diagnostics, unusual dosing modes)."
+
+[[field]]
+name = "evidence_location"
+type = "string"
+max_len = 200
+description = "Short pointer to where the parameters appear, e.g. 'Sec. 2.1; Table 1'. Max ~150 chars. Do NOT quote passages."
+
+[[field]]
+name = "confidence"
+type = "number"
+minimum = 0.0
+maximum = 1.0
+description = "0-1: how completely and unambiguously this record was reported in the paper."

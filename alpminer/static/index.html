@@ -1,0 +1,1393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ALPminer console</title>
+<style>
+/* Apple-design pass: adaptive light/dark, translucent materials, system
+   typography, instant press feedback, spring-like easing, reduced-motion. */
+:root{
+  color-scheme: light dark;
+  /* neutrals (light) */
+  --bg:#F5F5F7; --card:#FFFFFF; --card-2:#FFFFFF;
+  --ink:#1D1D1F; --muted:#6E6E73; --faint:#86868B;
+  --line:rgba(0,0,0,.10); --line-2:rgba(0,0,0,.06);
+  --fill:#EFEFF2; --fill-2:#E6E6EA;
+  /* systemic accent + status */
+  --accent:#0071E3; --accent-press:#0060C4; --on-accent:#FFFFFF;
+  --green:#248A3D; --amber:#B25000; --red:#D70015; --slate:#8E8E93;
+  --green-fill:#34C759; --amber-fill:#FF9F0A; --red-fill:#FF3B30;
+  --pending-fill:#D2D2D7; --nr-fill:#8E8E93; --triage-fill:#AEB4BE;
+  /* JS-referenced aliases (toast) — keep these names */
+  --film:var(--green); --oxide:var(--red);
+  /* terminal (stays dark in both themes) */
+  --term-bg:#1C1C1E; --term-bar:#141416; --term-ink:#E4E6E8; --term-dim:#8E8E93;
+  /* shape + depth */
+  --r-lg:14px; --r:11px; --r-sm:8px;
+  --shadow:0 .5px 1px rgba(0,0,0,.05),0 6px 18px rgba(0,0,0,.06);
+  --shadow-pop:0 18px 50px rgba(0,0,0,.22);
+  --glass:rgba(250,250,252,.72); --glass-line:rgba(0,0,0,.08);
+  --scrim:rgba(0,0,0,.28);
+  /* motion — spring-like ease (apple-design §4/§7) */
+  --ease:cubic-bezier(.32,.72,0,1); --dur:.34s; --dur-fast:.16s;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#000000; --card:#1C1C1E; --card-2:#2C2C2E;
+    --ink:#F5F5F7; --muted:#98989D; --faint:#8E8E93;
+    --line:rgba(255,255,255,.14); --line-2:rgba(255,255,255,.08);
+    --fill:#2C2C2E; --fill-2:#3A3A3C;
+    --accent:#0A84FF; --accent-press:#409CFF;
+    --green:#30D158; --amber:#FF9F0A; --red:#FF453A; --slate:#98989D;
+    --green-fill:#30D158; --amber-fill:#FF9F0A; --red-fill:#FF453A;
+    --pending-fill:#48484A; --nr-fill:#8E8E93; --triage-fill:#5A6270;
+    --term-bg:#0C0C0D; --term-bar:#161618;
+    --shadow:0 .5px 1px rgba(0,0,0,.5),0 8px 24px rgba(0,0,0,.55);
+    --shadow-pop:0 20px 56px rgba(0,0,0,.6);
+    --glass:rgba(30,30,32,.66); --glass-line:rgba(255,255,255,.10);
+    --scrim:rgba(0,0,0,.5);
+  }
+}
+@media (prefers-contrast:more){:root{--line:rgba(128,128,128,.55);--line-2:rgba(128,128,128,.4)}}
+
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:15px/1.47 var(--sans);
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  display:flex;flex-direction:column}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* controls */
+button{font:600 13px var(--sans);cursor:pointer;border:1px solid transparent;
+  background:var(--accent);color:var(--on-accent);padding:7px 15px;
+  border-radius:980px;transition:background var(--dur-fast) var(--ease),
+  transform var(--dur-fast) var(--ease),opacity var(--dur-fast) var(--ease)}
+button:hover{background:var(--accent-press)}
+button:active{transform:scale(.97)}            /* §1 instant press feedback */
+button.ghost{background:var(--fill);color:var(--ink)}
+button.ghost:hover{background:var(--fill-2)}
+button.danger{background:var(--red);color:#fff}
+button:disabled{opacity:.4;cursor:not-allowed;transform:none}
+input,select,textarea{font:inherit;padding:7px 10px;border:1px solid var(--line);
+  border-radius:var(--r-sm);background:var(--card);color:var(--ink);
+  transition:border-color var(--dur-fast) var(--ease),box-shadow var(--dur-fast) var(--ease)}
+input[type=number]{width:7.5em;font-family:var(--mono)}
+textarea{resize:vertical;line-height:1.5;width:100%}
+input::placeholder,textarea::placeholder{color:var(--faint)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 28%,transparent)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hidden{display:none!important}
+label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted)}
+.mono{font-family:var(--mono)}
+.eyebrow{font:600 11px var(--sans);letter-spacing:.06em;text-transform:uppercase;
+  color:var(--faint)}
+
+/* top status bar — translucent material (§12) */
+header{background:var(--glass);backdrop-filter:saturate(180%) blur(20px);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+  border-bottom:1px solid var(--glass-line);
+  padding:12px 22px;display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+.wordmark{font:600 21px var(--sans);letter-spacing:-.02em;   /* §15 negative tracking, large text */
+  display:flex;align-items:center}
+.wordmark::before{content:"";width:9px;height:9px;background:var(--accent);
+  border-radius:1px;margin-right:10px}   /* the pulse tick, as nameplate mark */
+.wordmark small{font:11px var(--mono);color:var(--faint);margin-left:8px}
+.gauges{display:flex;gap:26px;flex-wrap:wrap}
+.gauge{display:flex;flex-direction:column;gap:2px;line-height:1.05}
+.gauge b{font:600 18px var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.gauge span{font-size:10px;letter-spacing:.06em;color:var(--faint);text-transform:uppercase}
+.spacer{flex:1}
+.lamp{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
+.lamp .dot{width:8px;height:8px;border-radius:50%;background:var(--slate);
+  transition:background var(--dur) var(--ease)}
+.lamp.run .dot{background:var(--green);animation:pulse 1.6s var(--ease) infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--green) 55%,transparent)}
+  70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.chip{font:12px var(--mono);border:1px solid var(--line);border-radius:980px;
+  padding:3px 11px;background:var(--fill);color:var(--muted)}
+
+/* tabs — segmented */
+nav{display:flex;gap:2px;padding:10px 22px;background:transparent;flex-wrap:wrap}
+nav button{background:transparent;border:none;color:var(--muted);
+  border-radius:980px;padding:6px 15px;font:600 13px var(--sans);text-transform:none}
+nav button:hover{background:var(--fill);color:var(--ink)}
+nav button.active{background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
+
+main{flex:1;overflow:auto;padding:8px 22px 16px;background:var(--bg)}
+section{display:none;max-width:1120px;margin:0 auto}
+section.active{display:block;animation:rise var(--dur) var(--ease)}   /* materialize (§12) */
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.grid{display:grid;gap:16px}
+.grid.cols2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.card{border:1px solid var(--line-2);border-radius:var(--r-lg);padding:18px 20px;
+  background:var(--card);box-shadow:var(--shadow)}
+.card h3{margin:0 0 4px;font:600 16px var(--sans);letter-spacing:-.01em}
+.card .sub{color:var(--muted);font-size:13px;margin:0 0 12px;line-height:1.45}
+.row{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-top:10px}
+.check{flex-direction:row;align-items:center;gap:7px;font-size:13px;color:var(--ink)}
+
+/* segmented cycle bars */
+.stage{margin:12px 0 16px}
+.stage .head{display:flex;justify-content:space-between;font-size:12px;
+  color:var(--muted);margin-bottom:6px}
+.bar{display:flex;gap:2px;height:12px;border-radius:6px;overflow:hidden}
+.bar i{display:block;min-width:2px;transition:flex var(--dur) var(--ease)}
+.seg-done,.seg-ok{background:var(--green-fill)}
+.seg-manual{background:var(--amber-fill)} .seg-pending{background:var(--pending-fill)}
+.seg-fail{background:var(--red-fill)} .seg-nr{background:var(--nr-fill)}
+.seg-triage{background:var(--triage-fill)} .seg-ocrq{background:var(--amber-fill)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:7px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;
+  margin-right:5px;vertical-align:-1px}
+
+.big{font:600 32px var(--sans);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{font:600 11px var(--sans);letter-spacing:.04em;text-transform:uppercase;
+  color:var(--faint);text-align:left;border-bottom:1px solid var(--line);padding:8px 10px}
+td{border-bottom:1px solid var(--line-2);padding:9px 10px;vertical-align:top}
+tr.click{transition:background var(--dur-fast) var(--ease)}
+tr.click:hover{background:var(--fill);cursor:pointer}
+.pill{font:11px var(--mono);border-radius:980px;padding:2px 9px;background:var(--fill);color:var(--muted)}
+.empty{color:var(--faint);padding:30px 8px;text-align:center;font-style:italic}
+.pager{display:flex;align-items:center;justify-content:center;gap:18px;
+  margin-top:16px;padding-top:14px;border-top:1px solid var(--line-2)}
+.pager .hint{font-variant-numeric:tabular-nums;min-width:150px;text-align:center}
+.pager button[disabled]{opacity:.4;pointer-events:none}
+.rowbtns{display:flex;gap:6px;justify-content:flex-end;white-space:nowrap}
+button.mini{padding:3px 11px;font-size:11px;border-radius:980px}
+button.mini.warn{background:var(--fill);color:var(--red)}
+button.mini.warn:hover{background:var(--red);color:#fff}
+
+/* console — terminal material (dark in both themes) */
+#console{background:var(--term-bg);color:var(--term-ink);
+  font:12px/1.55 var(--mono);display:flex;flex-direction:column}
+#console .bar2{display:flex;align-items:center;gap:14px;padding:7px 18px;
+  border-top:1px solid rgba(255,255,255,.06);background:var(--term-bar);
+  color:var(--term-dim);font-size:11px;letter-spacing:.04em;text-transform:uppercase}
+#console .bar2 .spacer{flex:1}
+#console .bar2 button{background:rgba(255,255,255,.06);border:none;color:#c7cbd0;
+  padding:3px 11px;font:11px var(--mono);text-transform:none;letter-spacing:0;border-radius:980px}
+#console .bar2 button:hover{background:rgba(255,255,255,.12)}
+#loglines{height:170px;overflow-y:auto;padding:8px 18px;white-space:pre-wrap;word-break:break-word}
+#loglines div{opacity:.9}
+#console.min #loglines{display:none}
+
+#toast{position:fixed;right:20px;bottom:210px;background:var(--red);color:#fff;
+  padding:11px 16px;border-radius:var(--r);font-size:13px;font-weight:500;display:none;
+  max-width:420px;z-index:60;box-shadow:var(--shadow-pop);animation:rise var(--dur) var(--ease)}
+
+/* modal — dim + blur (§12) */
+#modal{position:fixed;inset:0;background:var(--scrim);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:none;
+  align-items:center;justify-content:center;z-index:50;padding:20px}
+#modal .box{background:var(--card);border-radius:var(--r-lg);max-width:760px;width:100%;
+  max-height:85vh;overflow:auto;padding:22px 24px;box-shadow:var(--shadow-pop);
+  animation:rise var(--dur) var(--ease)}
+#modal pre{background:var(--fill);border:1px solid var(--line-2);padding:12px;
+  border-radius:var(--r-sm);font:12px var(--mono);overflow:auto}
+dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;font-size:13px;margin:12px 0}
+dl.kv dt{color:var(--muted);font-family:var(--mono);font-size:12px}
+dl.kv dd{margin:0}
+
+#setup{max-width:520px;margin:44px auto}
+.hint{font-size:12px;color:var(--muted);line-height:1.5}
+.keyrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.dot-ok{color:var(--green)} .dot-no{color:var(--red)}
+fieldset{border:1px solid var(--line-2);border-radius:var(--r);margin:0 0 16px;
+  padding:14px 16px;background:var(--card)}
+legend{font:600 11px var(--sans);letter-spacing:.06em;text-transform:uppercase;
+  color:var(--faint);padding:0 6px}
+.formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+/* Settings: deliberate grids (auto-fit rags badly with uneven cell heights) */
+.grid-project{display:grid;grid-template-columns:1.35fr 1fr 1fr;
+  gap:16px 18px;align-items:start}
+.gp-profile{grid-row:1/3}
+.gp-span2{grid-column:2/4}
+.pair{display:flex;gap:8px}
+.pair input{flex:1;min-width:0}
+.grid-extract{display:grid;grid-template-columns:repeat(4,minmax(140px,1fr));
+  gap:14px 18px;align-items:end}
+.grid-extract .check{margin-bottom:9px}     /* checkboxes sit on the input baseline */
+.gx-span2{grid-column:span 2}
+.gx-hint{grid-column:1/-1;margin:0}
+#cfg-provider{max-width:480px}
+@media (max-width:860px){
+  .grid-project{grid-template-columns:1fr 1fr}
+  .gp-profile{grid-row:auto;grid-column:1/3}
+  .gp-span2{grid-column:1/3}
+  .grid-extract{grid-template-columns:repeat(2,1fr)}
+  .gx-span2{grid-column:span 2}
+}
+
+/* About / guide tab.
+   Marker vocabulary: the square "pulse tick" (borrowed from the cycle-bar
+   legend swatches) on hairline rails -- ALD is square-wave territory, so
+   sequence markers read as a timing diagram, not a landing page. */
+#tab-about{max-width:900px}
+#tab-about .lead{font-size:16px;color:var(--ink);line-height:1.55;margin:0 0 10px}
+/* horizontal process rail: tick + small-caps mono stage names on a hairline */
+#tab-about .rail{display:flex;align-items:center;flex-wrap:wrap;
+  margin:16px 0 4px;row-gap:10px}
+#tab-about .rail .tick{display:flex;align-items:center;gap:7px;
+  font:600 11px var(--mono);letter-spacing:.09em;color:var(--ink);
+  text-transform:uppercase;white-space:nowrap}
+#tab-about .rail .tick i{width:8px;height:8px;background:var(--accent);
+  border-radius:1px;flex:none}
+#tab-about .rail .seg{flex:1;min-width:16px;height:1px;background:var(--line);
+  margin:0 12px}
+/* vertical process rail for the four steps */
+#tab-about .steps{display:grid;gap:0;margin-top:6px}
+#tab-about .step{display:grid;grid-template-columns:20px 1fr;column-gap:16px;
+  padding:13px 0}
+#tab-about .step .tick{position:relative}
+#tab-about .step .tick::before{content:"";position:absolute;left:9px;top:-13px;
+  bottom:-13px;width:1px;background:var(--line)}
+#tab-about .step:first-child .tick::before{top:12px}
+#tab-about .step:last-child .tick::before{bottom:auto;height:25px}
+#tab-about .step .tick::after{content:"";position:absolute;left:5px;top:8px;
+  width:9px;height:9px;background:var(--accent);border-radius:1px}
+#tab-about .step h4{margin:3px 0 4px;font:600 15px var(--sans);letter-spacing:-.01em}
+#tab-about .step h4 .idx{font:600 10.5px var(--mono);letter-spacing:.09em;
+  color:var(--faint);margin-right:9px;vertical-align:1.5px}
+#tab-about .step p{margin:0 0 5px;color:var(--muted);font-size:13.5px;line-height:1.5}
+#tab-about ul.tips{margin:8px 0 0;padding:0;list-style:none;display:grid;gap:11px}
+#tab-about ul.tips li{padding-left:22px;position:relative;font-size:13.5px;
+  color:var(--ink);line-height:1.5}
+#tab-about ul.tips li::before{content:"";position:absolute;left:5px;top:7px;
+  width:7px;height:7px;border-radius:1px;background:var(--accent);opacity:.75}
+#tab-about a.tabref{font-weight:600;white-space:nowrap;cursor:pointer}
+#tab-about .card+.card{margin-top:16px}
+
+/* reduced motion / transparency (§14) */
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important}
+  button:active{transform:none}
+}
+@media (prefers-reduced-transparency:reduce){
+  header{background:var(--card);backdrop-filter:none;-webkit-backdrop-filter:none}
+  #modal{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.6)}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wordmark">ALPminer<small id="version"></small></div>
+  <div class="gauges">
+    <div class="gauge"><b id="g-papers">–</b><span>papers</span></div>
+    <div class="gauge"><b id="g-queue">–</b><span>awaiting PDF</span></div>
+    <div class="gauge"><b id="g-recipes">–</b><span>recipes</span></div>
+    <div class="gauge"><b id="g-tokens">–</b><span>est. tokens left</span></div>
+  </div>
+  <div class="spacer"></div>
+  <span class="chip" id="providerchip">–</span>
+  <div class="lamp" id="lamp"><span class="dot"></span><span id="lamptext">idle</span></div>
+  <button class="danger" id="stopbtn" style="display:none">Stop job</button>
+</header>
+
+<nav>
+  <button data-tab="dash" class="active">Dashboard</button>
+  <button data-tab="pipe">Pipeline</button>
+  <button data-tab="man">Manual queue</button>
+  <button data-tab="rec">Recipes</button>
+  <button data-tab="set">Settings</button>
+  <button data-tab="about">About</button>
+</nav>
+
+<main>
+  <div id="setup" style="display:none" class="card">
+    <div class="eyebrow">New project</div>
+    <h3>Set up this folder</h3>
+    <p class="sub">Creates <span class="mono">alpminer.toml</span> and the
+      <span class="mono">data/</span> tree here. Your email identifies polite
+      API traffic to OpenAlex and Unpaywall.</p>
+    <div class="row">
+      <label><span>Contact email</span>
+        <input id="init-email" type="email" placeholder="you@example.edu" size="28"></label>
+      <button id="init-btn">Create project</button>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <section id="tab-dash" class="active">
+    <div class="grid cols2">
+      <div class="card">
+        <div class="eyebrow">Pipeline state</div>
+        <div class="stage"><div class="head"><b>Download</b><span class="mono" id="t-dl"></span></div>
+          <div class="bar" id="bar-dl"></div>
+          <div class="legend"><span><i class="seg-ok"></i>downloaded</span><span><i class="seg-manual"></i>manual</span><span><i class="seg-pending"></i>pending</span></div></div>
+        <div class="stage"><div class="head"><b>Text</b><span class="mono" id="t-tx"></span></div>
+          <div class="bar" id="bar-tx"></div>
+          <div class="legend"><span><i class="seg-ok"></i>ok</span><span><i class="seg-ocrq"></i>awaiting OCR</span><span><i class="seg-fail"></i>failed</span><span><i class="seg-pending"></i>pending</span></div></div>
+        <div class="stage"><div class="head"><b>Extract</b><span class="mono" id="t-ex"></span></div>
+          <div class="bar" id="bar-ex"></div>
+          <div class="legend"><span><i class="seg-done"></i>done</span><span><i class="seg-nr"></i>no recipes</span><span><i class="seg-triage"></i>triaged out</span><span><i class="seg-fail"></i>failed</span><span><i class="seg-pending"></i>pending</span></div></div>
+      </div>
+      <div class="grid">
+        <div class="card"><div class="eyebrow">Recipes in database</div>
+          <div class="big" id="d-recipes">–</div>
+          <p class="sub">Exports live in <span class="mono" id="d-exports"></span></p>
+          <p class="sub" id="d-spend" style="display:none"></p>
+          <div class="row"><button data-job="export" class="jobbtn ghost">Rebuild exports</button></div>
+        </div>
+        <div class="card"><div class="eyebrow">Quick run</div>
+          <p class="sub">All stages end to end. Everything resumes; Stop is safe.</p>
+          <div class="row">
+            <label><span>Limit per stage</span><input type="number" id="qr-limit" value="25" min="1"></label>
+            <button id="quickrun">Run pipeline</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PIPELINE -->
+  <section id="tab-pipe">
+    <div class="grid cols2">
+      <div class="card"><h3>1 · Harvest metadata</h3>
+        <p class="sub">Fetch article records from OpenAlex. Resumable; safe to interrupt.</p>
+        <div class="row"><label><span>Max records this run (blank = all)</span>
+          <input type="number" id="hv-max" min="1" placeholder="all"></label>
+          <button class="jobbtn" data-job="harvest">Fetch metadata</button></div></div>
+      <div class="card"><h3>2 · Download open-access PDFs</h3>
+        <p class="sub">Legal OA copies only; the rest go to the manual queue.</p>
+        <div class="row"><label><span>Limit (blank = all pending)</span>
+          <input type="number" id="dl-limit" min="1" placeholder="all"></label>
+          <button class="jobbtn" data-job="download">Download PDFs</button></div></div>
+      <div class="card"><h3>3 · Extract recipes</h3>
+        <p class="sub">Triage + structured extraction with your configured provider.
+          Failed papers retry automatically next run.</p>
+        <div class="row">
+          <label><span>Limit</span><input type="number" id="ex-limit" min="1" placeholder="all"></label>
+          <label><span>Only paper id</span><input id="ex-only" class="mono" size="14" placeholder="W…"></label>
+          <label class="check"><input type="checkbox" id="ex-refresh"> re-spend cached responses</label>
+          <button class="jobbtn" data-job="extract">Extract recipes</button></div></div>
+      <div class="card"><h3>4 · Export database</h3>
+        <p class="sub">Rebuilds ald_recipes.json + flat JSON/CSV from current state.</p>
+        <div class="row"><button class="jobbtn" data-job="export">Rebuild exports</button></div></div>
+      <div class="card"><h3>Run everything</h3>
+        <p class="sub">Harvest → download → file inbox → extract → export.</p>
+        <div class="row">
+          <label><span>Limit per stage</span><input type="number" id="run-limit" min="1" placeholder="all"></label>
+          <label class="check"><input type="checkbox" id="run-skip"> skip harvest</label>
+          <button class="jobbtn" data-job="run">Run pipeline</button></div></div>
+    </div>
+  </section>
+
+  <!-- MANUAL -->
+  <section id="tab-man">
+    <div class="card">
+      <div class="row" style="align-items:end">
+        <div><div class="eyebrow">Awaiting a PDF</div>
+          <div class="big" id="m-count">–</div></div>
+        <div class="spacer"></div>
+        <label><span>Tabs</span><input type="number" id="m-n" value="10" min="1" max="25"></label>
+        <button id="m-open" style="margin-bottom:2px">Open next tabs</button>
+        <button id="m-ingest" class="ghost" style="margin-bottom:2px">File PDFs now</button>
+      </div>
+      <div class="row" style="align-items:end">
+        <label class="check" style="margin-bottom:9px"><input type="checkbox" id="m-watch"> auto-file PDFs as they arrive</label>
+        <label class="check" style="margin-bottom:9px"><input type="checkbox" id="m-temp"> also watch the system temp folder</label>
+        <label style="flex:1;min-width:260px"><span>Extra watched folders (comma-separated, e.g. your Downloads)</span>
+          <input id="m-dir" class="mono" placeholder="C:\Users\you\Downloads"></label>
+      </div>
+      <p class="hint">Every harvested paper is listed here right after harvest,
+        so you can drop PDFs straight in. Save each PDF into
+        <span class="mono" id="m-inbox"></span>; any filename works; files are
+        matched to their paper by the DOI on page 1, or by the title if no DOI
+        is printed. Folders
+        outside the inbox (Downloads, temp) are <b>copy-only</b>: matched PDFs
+        are copied in and your originals stay put; unrelated PDFs are ignored.
+        Note: Chrome/Edge's built-in viewer does not leave whole PDFs in temp, so
+        the reliable flow is still Save/Download into any watched folder.</p>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="eyebrow">Add a paper not in OpenAlex</div>
+      <p class="sub">Have a PDF that OpenAlex does not index (a preprint, a book
+        chapter, an internal report)? Add it by its path on this machine and it
+        joins the pipeline at extraction, no harvest needed. The DOI and title
+        are read from the PDF when you leave them blank.</p>
+      <div class="row" style="align-items:end">
+        <label style="flex:2;min-width:280px"><span>PDF file path</span>
+          <input id="add-path" class="mono" placeholder="C:\Users\you\papers\my_paper.pdf"></label>
+        <label style="flex:1;min-width:150px"><span>Title (optional)</span>
+          <input id="add-title"></label>
+        <label style="flex:1;min-width:140px"><span>DOI (optional)</span>
+          <input id="add-doi" class="mono" placeholder="10.xxxx/xxxxx"></label>
+        <button id="add-btn">Add paper</button>
+      </div>
+      <p class="hint">After adding, run <b>Extract</b> (Pipeline tab) to process
+        it, or <b>Run pipeline</b> with “skip harvest” checked.</p>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="row" style="align-items:center;margin:0 0 10px">
+        <input id="m-q" placeholder="Search title, DOI, journal, or id…" style="flex:1;min-width:220px">
+        <button id="m-remove-sel" class="ghost" disabled>Remove selected</button>
+      </div>
+      <table><thead><tr><th style="width:28px"><input type="checkbox" id="m-selall" title="select page"></th><th>Title</th><th>Year</th><th>Journal</th><th>Status</th><th></th></tr></thead>
+      <tbody id="m-rows"></tbody></table>
+      <div class="empty" id="m-empty" style="display:none">No papers awaiting a PDF. Every harvested paper already has one.</div>
+      <div class="pager" id="m-pager" style="display:none">
+        <button id="m-prev" class="ghost">← Prev</button>
+        <span class="hint" id="m-range"></span>
+        <button id="m-next" class="ghost">Next →</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px" id="m-removed-card">
+      <div class="row" style="align-items:center;margin:0">
+        <div><div class="eyebrow">Removed papers · <span id="m-removed-n">0</span></div>
+          <p class="sub" style="margin:2px 0 0">Papers you took out of the queue.
+            They are hidden from the queue and “Open next tabs” and are not
+            counted as awaiting a PDF, but they are kept here so you can bring
+            them back.</p></div>
+        <div class="spacer"></div>
+        <button id="m-removed-toggle" class="ghost">Show</button>
+        <button id="m-restore-all" class="ghost" style="display:none">Restore all</button>
+      </div>
+      <table id="m-removed-table" style="display:none;margin-top:12px">
+        <thead><tr><th>Title</th><th>Year</th><th>Journal</th><th></th></tr></thead>
+        <tbody id="m-removed-rows"></tbody></table>
+    </div>
+  </section>
+
+  <!-- RECIPES -->
+  <section id="tab-rec">
+    <div class="card">
+      <div class="row" style="align-items:center">
+        <input id="r-q" placeholder="Search material, precursor, DOI, journal…" style="flex:1;min-width:240px">
+        <span class="mono" id="r-total"></span>
+        <button id="r-prev" class="ghost">‹ Prev</button>
+        <button id="r-next" class="ghost">Next ›</button>
+        <button id="r-csv" class="ghost" title="Download every recipe matching the current search as CSV">Export view (CSV)</button>
+      </div>
+      <div class="legend" id="r-mats" style="margin-top:8px"></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <table><thead><tr><th>Material</th><th>Precursor / co-reactant</th>
+        <th>T (°C)</th><th>GPC (Å/cy)</th><th>Conf.</th><th>Source</th></tr></thead>
+      <tbody id="r-rows"></tbody></table>
+      <div class="empty" id="r-empty" style="display:none">No recipes yet.
+        Run the pipeline, then extract.</div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="tab-set">
+    <form id="cfgform" onsubmit="return false">
+      <fieldset><legend>Project</legend>
+        <div class="grid-project">
+          <label class="gp-profile"><span>Extraction profile</span><select name="profile" id="cfg-profile"></select>
+            <span class="hint">What to extract: fields + prompts. One project = one profile.</span>
+            <button id="prof-del" class="mini warn" type="button"
+              style="display:none;margin-top:6px;align-self:flex-start">Delete this profile…</button></label>
+          <label><span>Contact email</span><input name="email" type="email"></label>
+          <label><span>Publication years (from / to)</span>
+            <span class="pair">
+              <input name="from_year" type="number" placeholder="any">
+              <input name="to_year" type="number" placeholder="any">
+            </span></label>
+          <label class="gp-span2"><span>Data folder</span><input name="data_dir" class="mono">
+            <span class="hint">Changing this mid-project orphans existing data.</span></label>
+        </div>
+        <div id="newprof" style="display:none;margin-top:12px;padding:12px 14px;
+          border:1px solid var(--line);border-radius:var(--r-sm)">
+          <div class="row" style="align-items:end;margin:0">
+            <label style="min-width:200px"><span>New profile name (snake_case)</span>
+              <input id="np-name" class="mono" placeholder="my_profile"></label>
+            <label><span>Start from</span><select id="np-copy"></select></label>
+            <button id="np-create">Create profile</button>
+            <button id="np-cancel" class="ghost">Cancel</button>
+          </div>
+          <p class="hint" style="margin:8px 0 0">“Copy of …” starts with that
+            profile's full fields and prompts; the blank template is a minimal
+            starter. Either way you refine it in the Extraction rules card
+            below, and the built-ins are never modified.</p>
+        </div>
+        <div id="lock-note" style="display:none;margin-top:12px;padding:10px 14px;
+          border:1px solid var(--amber-fill);border-radius:var(--r-sm);font-size:13px">
+          This project's data was extracted with profile
+          <b class="mono" id="lock-prof">–</b>, so extracting with
+          <b class="mono" id="lock-want">–</b> here would be refused (one
+          project = one profile).
+          <button id="lock-switch" class="ghost mini" style="margin-left:8px"></button>
+        </div></fieldset>
+      <fieldset><legend>LLM provider</legend>
+        <div class="formgrid" style="margin:0 0 10px">
+          <label><span>AI company / provider</span>
+            <select name="provider" id="cfg-provider"></select></label>
+        </div>
+        <p class="hint" id="prov-hint" style="margin:0 0 10px"></p>
+        <div class="formgrid">
+          <label><span>Extraction model (reads full papers)</span>
+            <input id="mod-ext" class="mono"></label>
+          <label><span>Triage model (cheap relevance filter)</span>
+            <input id="mod-tri" class="mono"></label>
+          <label id="wrap-baseurl"><span>Base URL</span>
+            <input id="ps-base_url" class="mono" placeholder="http://localhost:11434/v1"></label>
+          <label id="wrap-keyenv"><span>API-key environment variable</span>
+            <input id="ps-api_key_env" class="mono" placeholder="OPENAI_API_KEY"></label>
+        </div></fieldset>
+      <fieldset><legend>Extraction</legend>
+        <div class="grid-extract">
+          <label class="check"><input type="checkbox" name="triage_enabled"> triage pass enabled</label>
+          <label><span>Triage characters</span><input name="triage_chars" type="number" min="1000"></label>
+          <label><span>Max paper characters</span><input name="max_paper_chars" type="number" min="10000"></label>
+          <label><span>Max output tokens</span><input name="max_output_tokens" type="number" min="500"></label>
+          <label><span>Parallel LLM calls</span><input name="extract_workers" type="number" min="1" max="8"></label>
+          <label class="check"><input type="checkbox" name="ocr_enabled"> OCR scanned PDFs</label>
+          <label class="gx-span2"><span>OCR timing</span>
+            <select name="ocr_mode">
+              <option value="deferred">after text-based papers (deferred)</option>
+              <option value="inline">as they appear (inline)</option>
+            </select></label>
+          <p class="hint gx-hint">Parallel calls: 1 is safest; 3–4 is much
+            faster on big runs. OCR needs
+            <span class="mono">pip install "alpminer[ocr]"</span> plus
+            Tesseract; deferred OCR flags scans, finishes every normal paper
+            first, then OCRs the flagged ones in the same run. OCR-sourced
+            records carry an <span class="mono">ocr</span> flag in all
+            exports.</p>
+        </div></fieldset>
+      <fieldset><legend>Network</legend>
+        <div class="formgrid">
+          <label><span>Request delay (s)</span><input name="request_delay_s" type="number" step="0.1" min="0"></label>
+          <label><span>Download timeout (s)</span><input name="download_timeout_s" type="number" min="10"></label>
+          <label><span>Max PDF size (MB)</span><input name="max_pdf_mb" type="number" min="1"></label>
+        </div></fieldset>
+      <div class="row">
+        <button id="cfg-save">Save settings</button>
+        <button id="cfg-reload" class="ghost">Reload from file</button>
+        <span class="hint mono" id="cfg-path"></span>
+      </div>
+    </form>
+
+    <div class="card" style="margin-top:16px">
+      <div class="eyebrow">API key · this session only, never saved to disk</div>
+      <p class="sub">One key box for whatever provider is selected above; the
+        key is stored in that provider's environment variable for the running
+        dashboard only.</p>
+      <div class="keyrow">
+        <span>Key for <b id="k-provider">–</b></span>
+        <span class="chip mono" id="k-env">–</span>
+        <span class="mono" id="k-status">–</span>
+      </div>
+      <div class="keyrow">
+        <input id="k-input" type="password" placeholder="paste the API key here" size="36">
+        <button id="k-set" class="ghost">Set key</button>
+        <button id="k-clear" class="ghost">Clear</button>
+      </div>
+      <p class="hint">For a permanent key, use
+        <span class="mono">setx <span id="k-env3">…</span> "…"</span> in
+        PowerShell, then reopen the dashboard. Local servers (Ollama, LM Studio)
+        usually need no key.</p>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="eyebrow">Extraction rules · profile <span class="mono" id="pf-name">–</span></div>
+      <h3 style="margin:2px 0 2px">What OpenAlex searches, and the keywords the model extracts</h3>
+      <p class="sub">Tune the literature query and the extraction instructions
+        here. Saving writes a project copy of the profile that shadows the
+        built-in, so the originals are never touched. The field set itself is
+        fixed for a project; the query and prompts below are safe to edit and
+        take effect on the next harvest / extract.</p>
+      <label style="margin-bottom:10px"><span>OpenAlex search query: what the harvester searches for, for this profile</span>
+        <input id="pf-query" class="mono"></label>
+      <label style="margin-bottom:10px"><span>Triage prompt: decides whether a paper is relevant enough to extract</span>
+        <textarea id="pf-triage" rows="5" class="mono"></textarea></label>
+      <label style="margin-bottom:10px"><span>Extraction prompt: the rules and keywords for what to pull out of each paper</span>
+        <textarea id="pf-extract" rows="12" class="mono"></textarea></label>
+      <div style="margin:8px 0 4px;font-size:12px;color:var(--muted)">Extracted
+        fields. Each becomes a value the model must fill and a column in the
+        export. Add or remove your own; one field must be the required key
+        (e.g. the material). Names are snake_case.</div>
+      <div style="overflow-x:auto">
+        <table id="pf-fields-table" style="min-width:640px"><thead><tr>
+          <th style="width:13em">Name</th><th style="width:6.5em">Type</th>
+          <th style="width:5em">Required</th><th>Description</th><th></th>
+        </tr></thead><tbody id="pf-fields-body"></tbody></table>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button id="pf-add-field" class="ghost">+ Add field</button>
+        <span class="hint">Changes apply to future extractions; existing recipes
+          keep their old fields until re-extracted.</span>
+      </div>
+      <div class="row">
+        <button id="pf-save">Save extraction rules</button>
+        <button id="pf-saveas" class="ghost" title="Create a new profile from these rules; you will be asked for its name">Save as new profile…</button>
+        <button id="pf-reload" class="ghost">Reload from profile</button>
+        <span class="hint" id="pf-status"></span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="eyebrow">Restore defaults</div>
+      <h3 style="margin:2px 0 2px">Reset settings to factory defaults</h3>
+      <p class="sub">Puts every setting on this tab (provider, models, search
+        query, extraction rules, and limits) back to what ALPminer ships with.
+        Your contact email and data folder are kept, and your harvested papers,
+        PDFs, and recipes are <b>not</b> touched.</p>
+      <div class="row" style="align-items:center">
+        <button id="factory-btn" class="ghost">Reset to factory settings</button>
+        <span class="hint" id="factory-status"></span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;border-color:var(--red)">
+      <div class="eyebrow" style="color:var(--red)">Danger zone</div>
+      <h3 style="margin:2px 0 2px">Reset this project</h3>
+      <p class="sub">Clears the database (all harvested papers, recipes, the
+        manual queue, the harvest checkpoint, and the profile lock) so you can
+        start fresh (e.g. with a different query or profile). This cannot be
+        undone.</p>
+      <div class="row" style="align-items:center">
+        <label class="check"><input type="checkbox" id="reset-files">
+          also delete downloaded PDFs, texts, caches, and exports</label>
+        <button id="reset-btn" class="danger">Reset project data</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ABOUT -->
+  <section id="tab-about">
+    <div class="card">
+      <div class="eyebrow">About alpminer</div>
+      <h3>Turn a body of literature into a structured recipe table</h3>
+      <p class="lead">ALPminer searches the scientific literature, collects the
+        PDFs, and uses an AI model to read each paper and pull out its process
+        recipes (precursors, temperatures, timings, growth per cycle, and the
+        other fields you care about) into one clean table you can export. You
+        drive the whole thing from the tabs above; this page explains how.</p>
+      <div class="rail">
+        <span class="tick"><i></i>Harvest</span><span class="seg"></span>
+        <span class="tick"><i></i>Get PDFs</span><span class="seg"></span>
+        <span class="tick"><i></i>Extract</span><span class="seg"></span>
+        <span class="tick"><i></i>Export</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="eyebrow">Before you start · one-time setup</div>
+      <ul class="tips">
+        <li><b>Create the project.</b> The first time you open this folder,
+          enter your email and click <b>Create project</b>. The email just
+          identifies polite traffic to the free OpenAlex / Unpaywall services and
+          is never used for anything else.</li>
+        <li><b>Choose your AI provider.</b> In
+          <a class="tabref" onclick="goTab('set')">Settings</a>, pick a provider
+          (Anthropic, OpenAI, Google, or a local / open-source server) and paste
+          its API key. Keys are held <b>for this session only</b> and are never
+          written to disk; set them again next time, or store them in your
+          system environment so they load automatically.</li>
+        <li><b>Optional: tune what you search and extract.</b> Still in
+          Settings, the <b>Extraction rules</b> card lets you edit the search
+          query and the exact list of fields the AI pulls out (add, rename, or
+          remove any of them), or switch between the built-in ALD and ALE
+          profiles. To build your own, pick <b>＋ Create new profile…</b> in the
+          profile dropdown: name it, then start from a blank template or a
+          copy of any existing profile. (Editing rules and clicking
+          <b>Save as new profile…</b> does the same from the editor.) Custom
+          profiles you no longer need can be deleted from the same dropdown;
+          the built-ins can never be modified or deleted.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="eyebrow">How the pipeline works · four steps</div>
+      <div class="steps">
+        <div class="step"><div class="tick"></div><div>
+          <h4><span class="idx">01</span>Harvest metadata</h4>
+          <p><a class="tabref" onclick="goTab('pipe')">Pipeline</a> →
+            <b>Fetch metadata</b>. Searches OpenAlex for every article matching
+            your query and stores its title, authors, journal, and DOI, just
+            the metadata, no PDFs yet. It is resumable, so a big harvest can be
+            stopped and continued anytime.</p>
+        </div></div>
+        <div class="step"><div class="tick"></div><div>
+          <h4><span class="idx">02</span>Get the PDFs</h4>
+          <p>Two ways, and you can use both. <b>Download PDFs</b> (Pipeline tab)
+            automatically fetches the legal open-access copies. Everything
+            without a free copy waits in the
+            <a class="tabref" onclick="goTab('man')">Manual queue</a>: open the
+            DOI links, download each through your library, and drop the files
+            into the inbox folder, where they match to their paper automatically by
+            the DOI or title on the page, whatever the filename. Have a PDF that
+            is not in OpenAlex (a preprint, a report)? <b>Add a paper not in
+            OpenAlex</b> on that same tab drops it straight into the pipeline.
+            And a paper you don't want? <b>Remove</b> takes it out of the queue;
+            it waits in the <i>Removed papers</i> list, restorable anytime.</p>
+        </div></div>
+        <div class="step"><div class="tick"></div><div>
+          <h4><span class="idx">03</span>Extract the recipes</h4>
+          <p>Pipeline → <b>Extract recipes</b>. The AI first triages each paper
+            (is it even relevant?) with a cheap model, then reads the full text
+            of the ones that pass and fills in your fields. Every response is
+            cached, so re-running never pays for the same paper twice, and
+            failed papers retry automatically next time. Big run? Raise
+            <b>Parallel LLM calls</b> in Settings to extract several papers at
+            once. Scanned PDFs with no text layer can be <b>OCR'd</b>, either
+            as they appear or deferred to the end of the run (Settings → OCR
+            timing).</p>
+        </div></div>
+        <div class="step"><div class="tick"></div><div>
+          <h4><span class="idx">04</span>Review and export</h4>
+          <p>Browse everything on the
+            <a class="tabref" onclick="goTab('rec')">Recipes</a> tab: search it,
+            and click any row to see the full record and where in the paper it
+            came from. <b>Export view (CSV)</b> downloads exactly what your
+            search matches; <b>Rebuild exports</b> (Dashboard) writes the full
+            CSV / JSON dataset. Every exported record carries an
+            <span class="mono">ocr</span> flag telling you whether its text came
+            from the PDF itself or from OCR.</p>
+        </div></div>
+      </div>
+      <p class="hint" style="margin-top:14px">In a hurry? <b>Run pipeline</b>
+        (Dashboard or Pipeline tab) does all four steps end to end. The
+        <b>Limit per stage</b> box keeps a first trial small and cheap.</p>
+    </div>
+
+    <div class="card">
+      <div class="eyebrow">Good to know</div>
+      <ul class="tips">
+        <li><b>Stopping is always safe.</b> Every paper is saved the moment it
+          finishes, so you can hit <b>Stop job</b> or close the app at any point
+          and pick up exactly where you left off; nothing is lost or repaid.</li>
+        <li><b>Watch the cost.</b> The <b>est. tokens left</b> gauge and the
+          per-stage limits help you control spend; triage runs on a cheap model
+          and only extraction uses the strong one. The Dashboard also shows the
+          <b>actual</b> tokens spent so far, straight from the provider's own
+          usage reports. Google Gemini has a free tier if you are just trying
+          things out.</li>
+        <li><b>Missing growth-per-cycle is filled in for you.</b> When a paper
+          gives a film thickness and a cycle count but no GPC, alpminer computes
+          it (thickness ÷ cycles) and marks the value <span class="mono">auto-derived</span>
+          so you always know which numbers were measured and which were
+          calculated.</li>
+        <li><b>The fields are yours to change.</b> Edit them anytime in Settings
+          → Extraction rules. Because one project stores one field set, switching
+          profiles or changing fields is cleanest after a
+          <a class="tabref" onclick="goTab('set')">Danger zone → Reset</a>.</li>
+        <li><b>Auto-file PDFs.</b> On the Manual queue tab you can have alpminer
+          watch your inbox (and even your Downloads folder) and file PDFs the
+          instant they arrive, copying them in without touching your originals.</li>
+        <li><b>Scanned (image-only) PDFs are recoverable.</b> Install OCR once
+          (<span class="mono">pip install "alpminer[ocr]"</span> plus Tesseract)
+          and turn it on in Settings. Choose <i>inline</i> to OCR each scan as
+          it is reached, or <i>deferred</i> to finish all normal papers first
+          and OCR the flagged ones at the end of the same run. OCR-sourced
+          records are always marked (<span class="mono">ocr</span> column /
+          badge) since OCR can misread characters.</li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div id="console">
+  <div class="bar2"><span>console</span>
+    <span class="spacer"></span>
+    <button id="log-clear">clear</button>
+    <button id="log-min">hide</button></div>
+  <div id="loglines" aria-live="polite"></div>
+</div>
+
+<div id="toast" role="alert"></div>
+<div id="modal"><div class="box">
+  <div class="row" style="justify-content:space-between;align-items:center;margin:0">
+    <h3 id="md-title" style="margin:0"></h3>
+    <button class="ghost" onclick="modal.style.display='none'">Close</button></div>
+  <p class="sub" id="md-src"></p>
+  <dl class="kv" id="md-kv"></dl>
+  <div class="eyebrow">Raw record</div>
+  <pre id="md-raw"></pre>
+</div></div>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const modal=$("modal");
+let state=null, logCursor=0, recOffset=0, recQ="", cfgDirty=false, wasRunning=false, manOffset=0, manQ="", removedOpen=false;
+
+function toast(msg){const t=$("toast");t.textContent=msg;t.style.display="block";
+  clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",5000);}
+async function api(path,body){
+  const opt=body?{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(body)}:{};
+  const r=await fetch(path,opt);const j=await r.json().catch(()=>({}));
+  if(!r.ok){throw new Error(j.error||r.status);} return j;}
+function post(path,body){return api(path,body).catch(e=>{toast(e.message);throw e;});}
+
+/* tabs */
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.remove("active"));
+  document.querySelectorAll("main section").forEach(x=>x.classList.remove("active"));
+  b.classList.add("active");$("tab-"+b.dataset.tab).classList.add("active");
+  if(b.dataset.tab==="man")loadManual();
+  if(b.dataset.tab==="rec")loadRecipes();
+  if(b.dataset.tab==="set"){loadProviders();loadProfileEditor();refreshKeyStatus();}
+});
+/* used by the About tab's inline links to jump to another tab */
+function goTab(name){const b=document.querySelector('nav button[data-tab="'+name+'"]');
+  if(b)b.click();}
+
+/* segmented cycle bars */
+function bar(el,parts){el.textContent="";const total=parts.reduce((s,p)=>s+p[1],0)||1;
+  for(const[cls,n]of parts){if(!n)continue;const i=document.createElement("i");
+    i.className="seg-"+cls;i.style.flex=String(n);i.title=cls+": "+n;
+    el.appendChild(i);}
+  if(!el.children.length){const i=document.createElement("i");
+    i.className="seg-pending";i.style.flex="1";el.appendChild(i);}}
+
+function fmt(n){return (n==null)?"–":Number(n).toLocaleString();}
+
+function renderState(s){
+  state=s;$("version").textContent="v"+s.version;
+  $("setup").style.display=s.initialized?"none":"block";
+  document.querySelector("main").querySelectorAll("section").forEach(
+    sec=>sec.style.opacity=(s.initialized||sec.id==="tab-about")?1:.35);
+  /* job lamp */
+  const lamp=$("lamp");
+  if(s.job.running){lamp.classList.add("run");
+    $("lamptext").textContent="running · "+s.job.name;
+    $("stopbtn").style.display="inline-block";}
+  else{lamp.classList.remove("run");
+    $("lamptext").textContent=s.job.last?("idle · last "+s.job.last.name+
+      " exit "+s.job.last.code):"idle";
+    $("stopbtn").style.display="none";}
+  /* a job just finished -> refresh whatever data view is open so it never
+     shows the previous run's results */
+  if(wasRunning&&!s.job.running){
+    const act=document.querySelector("nav button.active");
+    const tab=act?act.dataset.tab:"";
+    if(tab==="rec")loadRecipes();else if(tab==="man")loadManual();}
+  wasRunning=s.job.running;
+  document.querySelectorAll(".jobbtn,#quickrun").forEach(
+    b=>b.disabled=s.job.running||!s.initialized);
+  $("m-watch").checked=s.watch.on;
+  if(!s.initialized){$("providerchip").textContent="no project";return;}
+  const c=s.config;
+  const model=((c.models||{})[c.provider]||{}).extraction
+    ||((c.provider_settings&&c.provider_settings.base_url)||"custom");
+  const prof=s.profile?(s.profile.name+" · "):"";
+  $("providerchip").textContent=prof+c.provider+" · "+model;
+  $("cfg-path").textContent=s.config_path;
+  $("m-inbox").textContent=s.inbox; $("d-exports").textContent=s.exports_dir;
+  if(!cfgDirty)fillForm(c);
+  updateLockNote();updateProfDel();
+  const st=s.status;if(!st)return;
+  $("g-papers").textContent=fmt(st.papers);
+  $("g-queue").textContent=fmt(st.manual_count);
+  $("g-recipes").textContent=fmt(st.recipes);
+  $("g-tokens").textContent=st.pending_tokens?("~"+fmt(st.pending_tokens)):"0";
+  $("d-recipes").textContent=fmt(st.recipes);
+  const sp=st.tokens_spent;
+  if(sp&&sp.calls){$("d-spend").style.display="block";
+    $("d-spend").textContent=`LLM spend so far: ${fmt(sp.input)} in / `
+      +`${fmt(sp.output)} out tokens over ${fmt(sp.calls)} calls `
+      +"(provider-reported; cached re-runs are free).";}
+  else $("d-spend").style.display="none";
+  $("m-count").textContent=fmt(st.manual_count);
+  const dl=st.download_status||{},tx=st.text_status||{},ex=st.extract_status||{};
+  bar($("bar-dl"),[["ok",dl.downloaded||0],["manual",dl.manual||0],["pending",dl.pending||0]]);
+  $("t-dl").textContent=`${fmt(dl.downloaded)} ok · ${fmt(dl.manual)} manual · ${fmt(dl.pending)} pending`;
+  bar($("bar-tx"),[["ok",tx.ok||0],["ocrq",tx.ocr_pending||0],
+    ["fail",tx.failed||0],["pending",tx.pending||0]]);
+  $("t-tx").textContent=`${fmt(tx.ok)} ok · ${fmt(tx.failed)} failed`
+    +(tx.ocr_pending?` · ${fmt(tx.ocr_pending)} awaiting OCR`:"");
+  bar($("bar-ex"),[["done",ex.done||0],["nr",ex.no_recipes||0],
+    ["triage",ex.triaged_out||0],["fail",ex.failed||0],["pending",ex.pending||0]]);
+  $("t-ex").textContent=`${fmt(ex.done)} done · ${fmt(ex.pending)} pending · ${fmt(ex.failed)} failed`;
+}
+
+async function poll(){try{renderState(await api("/api/state"));}catch(e){}}
+async function pollLogs(){try{
+  const j=await api("/api/logs?since="+logCursor);
+  if(j.lines.length){const box=$("loglines");
+    const pinned=box.scrollTop+box.clientHeight>=box.scrollHeight-8;
+    for(const l of j.lines){const d=document.createElement("div");
+      d.textContent=l.t;box.appendChild(d);}
+    while(box.children.length>2500)box.removeChild(box.firstChild);
+    if(pinned)box.scrollTop=box.scrollHeight;}
+  logCursor=j.next;}catch(e){}}
+setInterval(poll,2000);setInterval(pollLogs,1000);poll();pollLogs();
+
+/* setup */
+$("init-btn").onclick=async()=>{await post("/api/init",{email:$("init-email").value});poll();};
+
+/* jobs */
+function jobParams(name){
+  if(name==="harvest")return{max:$("hv-max").value||null};
+  if(name==="download")return{limit:$("dl-limit").value||null};
+  if(name==="extract")return{limit:$("ex-limit").value||null,
+    refresh:$("ex-refresh").checked,only:$("ex-only").value||null};
+  if(name==="run")return{limit:$("run-limit").value||null,
+    skip_harvest:$("run-skip").checked};
+  return{};}
+document.querySelectorAll(".jobbtn").forEach(b=>b.onclick=
+  ()=>post("/api/job",{name:b.dataset.job,params:jobParams(b.dataset.job)}).then(poll));
+$("quickrun").onclick=()=>post("/api/job",{name:"run",
+  params:{limit:$("qr-limit").value||null}}).then(poll);
+$("stopbtn").onclick=()=>post("/api/job/stop").then(poll);
+
+/* manual */
+async function loadManual(){
+  const j=await api(`/api/manual?q=${encodeURIComponent(manQ)}&offset=${manOffset}&limit=50`)
+    .catch(()=>null);
+  if(!j)return;
+  /* the queue can shrink while you browse (PDFs get filed), leaving this page
+     past the end — fall back to the last page that still has rows */
+  if(manOffset>0&&manOffset>=j.count){
+    manOffset=Math.max(0,(Math.ceil(j.count/50)-1)*50);return loadManual();}
+  const tb=$("m-rows");tb.textContent="";
+  $("m-selall").checked=false;updateRemoveSel();
+  $("m-empty").style.display=j.count?"none":"block";
+  $("m-empty").textContent=manQ?"No queued papers match this search."
+    :"No papers awaiting a PDF. Every harvested paper already has one.";
+  for(const it of j.items){const tr=document.createElement("tr");
+    const sel=document.createElement("td");
+    const cb=document.createElement("input");cb.type="checkbox";
+    cb.className="m-sel";cb.dataset.id=it.id;cb.onchange=updateRemoveSel;
+    sel.appendChild(cb);tr.appendChild(sel);
+    const t=document.createElement("td");
+    if(it.url){const a=document.createElement("a");a.href=it.url;
+      a.target="_blank";a.rel="noopener";a.textContent=it.title||"(untitled)";
+      t.appendChild(a);}else t.textContent=it.title||"(untitled)";
+    const sub=document.createElement("div");sub.className="hint mono";
+    sub.textContent=it.id;t.appendChild(sub);
+    tr.appendChild(t);
+    for(const v of[it.year,it.journal,(it.why||it.error||"").slice(0,80)]){
+      const td=document.createElement("td");td.textContent=v??"";tr.appendChild(td);}
+    tr.appendChild(rowActions([
+      ["Open","mini",()=>{if(it.url)window.open(it.url,"_blank","noopener");},!it.url],
+      ["Remove","mini warn",()=>manualRemove(it.id)]]));
+    tb.appendChild(tr);}
+  const pg=$("m-pager");
+  if(j.count>50){pg.style.display="flex";
+    $("m-range").textContent=`${manOffset+1}–${Math.min(manOffset+50,j.count)} of ${fmt(j.count)}`;
+    $("m-prev").disabled=manOffset<=0;
+    $("m-next").disabled=manOffset+50>=j.count;}
+  else pg.style.display="none";
+  updateRemovedBadge(j.removed_count||0);}
+/* build an actions <td> from [label, class, onclick, disabled?] specs */
+function rowActions(specs){const td=document.createElement("td");
+  const box=document.createElement("div");box.className="rowbtns";
+  for(const[label,cls,fn,dis]of specs){const b=document.createElement("button");
+    b.className=cls;b.textContent=label;b.disabled=!!dis;b.onclick=fn;
+    box.appendChild(b);}
+  td.appendChild(box);return td;}
+function updateRemovedBadge(n){
+  $("m-removed-n").textContent=fmt(n);
+  $("m-removed-card").style.display=n?"block":"none";
+  if(!n){removedOpen=false;$("m-removed-table").style.display="none";
+    $("m-removed-toggle").textContent="Show";$("m-restore-all").style.display="none";}
+  else if(removedOpen)loadRemoved();}
+async function loadRemoved(){
+  const j=await api("/api/manual/removed").catch(()=>null);
+  if(!j)return;const tb=$("m-removed-rows");tb.textContent="";
+  for(const it of j.items){const tr=document.createElement("tr");
+    const t=document.createElement("td");
+    if(it.url){const a=document.createElement("a");a.href=it.url;a.target="_blank";
+      a.rel="noopener";a.textContent=it.title||"(untitled)";t.appendChild(a);}
+    else t.textContent=it.title||"(untitled)";
+    const sub=document.createElement("div");sub.className="hint mono";
+    sub.textContent=it.id;t.appendChild(sub);tr.appendChild(t);
+    for(const v of[it.year,it.journal]){
+      const td=document.createElement("td");td.textContent=v??"";tr.appendChild(td);}
+    tr.appendChild(rowActions([["Restore","mini",()=>manualRestore(it.id)]]));
+    tb.appendChild(tr);}}
+async function manualRemove(id){await post("/api/manual/remove",{id});
+  loadManual();poll();}
+async function manualRestore(id){await post("/api/manual/restore",{id});
+  loadManual();poll();}
+$("m-removed-toggle").onclick=()=>{removedOpen=!removedOpen;
+  $("m-removed-table").style.display=removedOpen?"table":"none";
+  $("m-removed-toggle").textContent=removedOpen?"Hide":"Show";
+  $("m-restore-all").style.display=removedOpen?"inline-block":"none";
+  if(removedOpen)loadRemoved();};
+$("m-restore-all").onclick=async()=>{
+  const j=await post("/api/manual/restore",{all:true});
+  toastOk(`Restored ${j.restored} paper(s) to the queue.`);
+  removedOpen=false;loadManual();poll();};
+$("m-prev").onclick=()=>{manOffset=Math.max(0,manOffset-50);loadManual();
+  document.querySelector("#tab-man").scrollIntoView({block:"start"});};
+$("m-next").onclick=()=>{manOffset+=50;loadManual();
+  document.querySelector("#tab-man").scrollIntoView({block:"start"});};
+let mq;$("m-q").oninput=e=>{clearTimeout(mq);
+  mq=setTimeout(()=>{manQ=e.target.value;manOffset=0;loadManual();},350);};
+function selectedIds(){return[...document.querySelectorAll(".m-sel:checked")]
+  .map(cb=>cb.dataset.id);}
+function updateRemoveSel(){const n=selectedIds().length;
+  $("m-remove-sel").disabled=!n;
+  $("m-remove-sel").textContent=n?`Remove selected (${n})`:"Remove selected";}
+$("m-selall").onchange=()=>{document.querySelectorAll(".m-sel").forEach(
+  cb=>cb.checked=$("m-selall").checked);updateRemoveSel();};
+$("m-remove-sel").onclick=async()=>{const ids=selectedIds();
+  if(!ids.length)return;
+  const j=await post("/api/manual/remove",{ids});
+  toastOk(`Removed ${j.removed} paper(s); restorable below.`);
+  loadManual();poll();};
+$("m-open").onclick=()=>post("/api/manual/open",{n:+$("m-n").value||10});
+$("m-ingest").onclick=async()=>{const dirs=$("m-dir").value.split(",")
+  .map(x=>x.trim()).filter(Boolean);
+  const j=await post("/api/manual/ingest",{dir:dirs[0]||null});toastOk(
+  `Filed ${j.filed}; ${j.unmatched} unmatched; ${j.duplicate} duplicates.`);
+  loadManual();poll();};
+$("add-btn").onclick=async()=>{
+  const path=$("add-path").value.trim();
+  if(!path){toast("Enter the PDF path first.");return;}
+  const j=await post("/api/manual/add",{path,
+    title:$("add-title").value.trim(),doi:$("add-doi").value.trim()});
+  $("add-path").value="";$("add-title").value="";$("add-doi").value="";
+  toastOk("Added "+j.id+(j.reused?" (matched existing DOI)":"")
+    +". Run Extract to process it.");poll();};
+function toastOk(msg){const t=$("toast");t.style.background="var(--film)";
+  toast(msg);setTimeout(()=>t.style.background="var(--oxide)",5100);}
+function watchBody(on){return{on,include_temp:$("m-temp").checked,
+  dirs:$("m-dir").value.split(",").map(x=>x.trim()).filter(Boolean)};}
+$("m-watch").onchange=()=>post("/api/watch",watchBody($("m-watch").checked));
+$("m-temp").onchange=()=>{if($("m-watch").checked)
+  post("/api/watch",{on:false}).then(()=>post("/api/watch",watchBody(true)));};
+
+/* recipes */
+async function loadRecipes(){
+  const j=await api(`/api/recipes?q=${encodeURIComponent(recQ)}&offset=${recOffset}&limit=50`)
+    .catch(()=>null);
+  if(!j)return;
+  $("r-total").textContent=j.total?`${j.offset+1}–${Math.min(j.offset+50,j.total)} of ${fmt(j.total)}`:"0";
+  $("r-prev").disabled=j.offset<=0;$("r-next").disabled=j.offset+50>=j.total;
+  const tb=$("r-rows");tb.textContent="";
+  $("r-empty").style.display=j.total?"none":"block";
+  for(const it of j.items){const r=it.recipe,tr=document.createElement("tr");
+    tr.className="click";
+    const cells=[r.material,
+      [r.metal_precursor_abbrev||r.metal_precursor,
+       r.co_reactant_abbrev||r.co_reactant].filter(Boolean).join(" + "),
+      r.deposition_temperature_c??"",
+      r.gpc_angstrom_per_cycle??"",
+      r.confidence!=null?r.confidence.toFixed(2):"",
+      `${it.journal||""} ${it.year||""}`];
+    for(const v of cells){const td=document.createElement("td");
+      td.textContent=v===0?"0":(v||"");tr.appendChild(td);}
+    if(it.ocr){const p=document.createElement("span");p.className="pill mono";
+      p.title="text came from OCR, not the PDF's text layer";
+      p.textContent="OCR";p.style.marginLeft="6px";
+      tr.firstChild.appendChild(p);}
+    tr.onclick=()=>showRecipe(it);tb.appendChild(tr);}
+  const st=await api("/api/recipes/stats").catch(()=>null);
+  if(st){const m=$("r-mats");m.textContent="";
+    for(const[mat,n]of st.top_materials){const s=document.createElement("span");
+      s.className="pill mono";s.textContent=`${mat} ${n}`;m.appendChild(s);}}}
+let rq;$("r-q").oninput=e=>{clearTimeout(rq);
+  rq=setTimeout(()=>{recQ=e.target.value;recOffset=0;loadRecipes();},350);};
+$("r-prev").onclick=()=>{recOffset=Math.max(0,recOffset-50);loadRecipes();};
+$("r-next").onclick=()=>{recOffset+=50;loadRecipes();};
+$("r-csv").onclick=()=>{location.href="/api/recipes.csv?q="+encodeURIComponent(recQ);};
+function showRecipe(it){const r=it.recipe;
+  $("md-title").textContent=r.material+" · "+(r.technique||"ALD");
+  $("md-src").textContent="";
+  if(it.doi){const a=document.createElement("a");
+    a.href="https://doi.org/"+it.doi;a.target="_blank";a.rel="noopener";
+    a.textContent=it.title||it.doi;$("md-src").appendChild(a);}
+  else $("md-src").textContent=it.title||"";
+  const kv=$("md-kv");kv.textContent="";
+  for(const[k,v]of Object.entries(r)){if(v==null||v==="")continue;
+    const dt=document.createElement("dt");dt.textContent=k;
+    const dd=document.createElement("dd");
+    dd.textContent=Array.isArray(v)?v.join(", "):String(v);
+    kv.append(dt,dd);}
+  $("md-raw").textContent=JSON.stringify(r,null,2);
+  modal.style.display="flex";}
+modal.onclick=e=>{if(e.target===modal)modal.style.display="none";};
+
+/* profile lock: the database holds one profile's data. When the selected
+   profile differs from the lock, offer a one-click switch to a sibling
+   data folder (a fresh database) so the two never mix. */
+function updateLockNote(){
+  const locked=state&&state.status&&state.status.locked_profile;
+  const want=$("cfg-profile").value;
+  const show=!!locked&&!!want&&want!=="__new__"&&want!==locked;
+  $("lock-note").style.display=show?"block":"none";
+  if(show){$("lock-prof").textContent=locked;$("lock-want").textContent=want;
+    $("lock-switch").textContent="Use folder data_"+want+" instead";}}
+$("cfg-profile").addEventListener("change",updateLockNote);
+$("lock-switch").onclick=()=>{
+  const want=$("cfg-profile").value;
+  document.querySelector('#cfgform [name="data_dir"]').value="data_"+want;
+  cfgDirty=true;$("cfg-save").click();};
+
+/* settings */
+let profileMeta={};   // name -> {deletable}
+async function loadProfiles(){try{
+  const j=await api("/api/profiles");const sel=$("cfg-profile");
+  const current=sel.value;sel.textContent="";profileMeta={};
+  for(const p of j.profiles){const o=document.createElement("option");
+    o.value=p.name;profileMeta[p.name]={deletable:!!p.deletable};
+    o.textContent=p.error?`${p.name} (invalid)`:
+      `${p.name} · ${p.label} (${p.fields} fields)`;
+    sel.appendChild(o);}
+  const nw=document.createElement("option");nw.value="__new__";
+  nw.textContent="＋ Create new profile…";sel.appendChild(nw);
+  if(current&&current!=="__new__")sel.value=current;
+  updateProfDel();}catch(e){}}
+loadProfiles();
+
+/* delete a custom profile (built-ins are protected server-side too) */
+function updateProfDel(){
+  const v=$("cfg-profile").value;
+  const meta=profileMeta[v];
+  $("prof-del").style.display=(meta&&meta.deletable)?"inline-block":"none";}
+$("cfg-profile").addEventListener("change",updateProfDel);
+$("prof-del").onclick=async()=>{
+  const name=$("cfg-profile").value;
+  if(!confirm(`Delete the custom profile “${name}”?\n\nIts profiles/${name}.toml `
+    +"file is removed permanently. Built-in profiles are unaffected, and any "
+    +"data already extracted with it stays in the database."))return;
+  await post("/api/profiles/delete",{name});
+  toastOk(`Profile “${name}” deleted.`);
+  const cur=state&&state.config&&state.config.profile;
+  await loadProfiles();
+  if(cur)$("cfg-profile").value=cur;      // fall back to the active profile
+  updateProfDel();updateLockNote();loadProfileEditor();poll();};
+
+/* "Create new profile…" panel (name + start-from choice) */
+function showNewProfilePanel(){
+  const sel=$("np-copy");sel.textContent="";
+  const blank=document.createElement("option");blank.value="";
+  blank.textContent="blank template (from scratch)";sel.appendChild(blank);
+  for(const o of $("cfg-profile").options){
+    if(o.value==="__new__")continue;
+    const c=document.createElement("option");c.value=o.value;
+    c.textContent="copy of "+o.value;sel.appendChild(c);}
+  const cur=state&&state.config&&state.config.profile;
+  if(cur)sel.value=cur;                     // most likely intent: copy current
+  $("np-name").value="";
+  $("newprof").style.display="block";$("np-name").focus();}
+function hideNewProfilePanel(revert){
+  $("newprof").style.display="none";
+  if(revert){const cur=state&&state.config&&state.config.profile;
+    if(cur)$("cfg-profile").value=cur;updateLockNote();}}
+$("cfg-profile").addEventListener("change",()=>{
+  if($("cfg-profile").value==="__new__")showNewProfilePanel();
+  else hideNewProfilePanel(false);});
+$("np-cancel").onclick=()=>hideNewProfilePanel(true);
+$("np-create").onclick=async()=>{
+  const name=$("np-name").value.trim();
+  if(!name){toast("Enter a name for the new profile.");return;}
+  const j=await post("/api/profiles/create",
+    {name,copy_from:$("np-copy").value});
+  toastOk(`Profile “${j.name}” created`
+    +(j.copied_from?` as a copy of ${j.copied_from}`:" from the template")
+    +" and selected.");
+  hideNewProfilePanel(false);cfgDirty=false;
+  await loadProfiles();$("cfg-profile").value=j.name;
+  loadProfileEditor();poll();};
+
+/* provider dropdown + per-provider model fields */
+const PROVIDER_LABELS={anthropic:"Anthropic (Claude)",
+  openai:"OpenAI (GPT)",
+  gemini:"Google (Gemini)",
+  openai_compatible:"Local / open-source (Ollama, LM Studio, vLLM, …)"};
+async function loadProviders(){try{
+  const j=await api("/api/providers");const sel=$("cfg-provider");
+  const cur=sel.value||(state&&state.config&&state.config.provider)||"anthropic";
+  sel.textContent="";
+  const add=(v,t)=>{const o=document.createElement("option");o.value=v;
+    o.textContent=t;sel.appendChild(o);};
+  for(const p of j.builtin)add(p,PROVIDER_LABELS[p]||p);
+  for(const p of j.plugins)add(p,p+" (custom plugin)");
+  sel.value=cur;applyProvider(sel.value);}catch(e){}}
+/* every provider is a peer: the SAME two model boxes, backed by a per-
+   provider entry in modelsState (mirrors [models.<provider>] in the toml) */
+let modelsState={}, modProvider=null;
+function commitModelInputs(){
+  if(!modProvider)return;
+  modelsState[modProvider]={extraction:$("mod-ext").value.trim(),
+                            triage:$("mod-tri").value.trim()};}
+function applyProvider(p){
+  const isEndpoint=(p==="openai_compatible")||
+    (p!=="anthropic"&&p!=="openai"&&p!=="gemini");   // openai_compatible or a plugin
+  const show=(id,on)=>{const el=$(id);if(el)el.classList.toggle("hidden",!on);};
+  show("wrap-baseurl",isEndpoint);show("wrap-keyenv",isEndpoint);
+  commitModelInputs();
+  const pair=modelsState[p]||{};
+  $("mod-ext").value=pair.extraction||"";
+  $("mod-tri").value=pair.triage||"";
+  modProvider=p;
+  $("prov-hint").textContent=p==="anthropic"
+    ?"Reads ANTHROPIC_API_KEY from the environment (set it below, or with setx)."
+    :p==="openai"
+    ?"Uses api.openai.com; reads OPENAI_API_KEY from the environment."
+    :p==="gemini"
+    ?"Reads GEMINI_API_KEY from the environment (get one at aistudio.google.com/apikey)."
+    :p==="openai_compatible"
+    ?"Base URL points at your server (Ollama, vLLM, LM Studio…); the key is read from the named env var; local servers usually need none."
+    :"Custom plugin from llm_providers/"+p+".py. Base URL / key env feed [provider_settings] if the plugin reads them.";
+  updateKeyLabels();}
+$("mod-ext").addEventListener("input",()=>{cfgDirty=true;});
+$("mod-tri").addEventListener("input",()=>{cfgDirty=true;});
+$("cfg-provider").addEventListener("change",()=>{applyProvider($("cfg-provider").value);cfgDirty=true;refreshKeyStatus();});
+loadProviders();
+
+/* extraction-rules (profile) editor — OpenAlex query + prompts + fields */
+const PF_TYPES=["string","number","integer","boolean","array"];
+function pfFieldRow(f){
+  f=f||{};const tr=document.createElement("tr");
+  tr.dataset.min=(f.minimum??"");tr.dataset.max=(f.maximum??"");
+  tr.dataset.maxlen=(f.max_len??"");
+  const name=document.createElement("input");name.className="pf-fname mono";
+  name.value=f.name||"";name.placeholder="field_name";name.style.width="12em";
+  const type=document.createElement("select");type.className="pf-ftype";
+  for(const t of PF_TYPES){const o=document.createElement("option");
+    o.value=t;o.textContent=t;type.appendChild(o);}
+  type.value=PF_TYPES.includes(f.type)?f.type:"string";
+  const req=document.createElement("input");req.type="checkbox";
+  req.className="pf-freq";req.checked=!!f.required;
+  const desc=document.createElement("input");desc.className="pf-fdesc";
+  desc.value=f.description||"";desc.style.width="100%";
+  desc.placeholder="what the model should put here (units, examples)";
+  const del=document.createElement("button");del.type="button";del.className="ghost";
+  del.textContent="×";del.title="remove field";del.onclick=()=>tr.remove();
+  [name,type,req,desc,del].forEach(el=>{const td=document.createElement("td");
+    td.appendChild(el);tr.appendChild(td);});
+  return tr;}
+function renderFields(fields){const b=$("pf-fields-body");b.textContent="";
+  for(const f of (fields||[]))b.appendChild(pfFieldRow(f));}
+function collectFields(){const out=[],num=v=>(v===""||v==null)?null:Number(v);
+  for(const tr of $("pf-fields-body").children){
+    const nm=tr.querySelector(".pf-fname").value.trim();
+    if(!nm)continue;
+    const f={name:nm,type:tr.querySelector(".pf-ftype").value,
+      required:tr.querySelector(".pf-freq").checked,
+      description:tr.querySelector(".pf-fdesc").value.trim()};
+    if(tr.dataset.min!=="")f.minimum=num(tr.dataset.min);
+    if(tr.dataset.max!=="")f.maximum=num(tr.dataset.max);
+    if(tr.dataset.maxlen!=="")f.max_len=num(tr.dataset.maxlen);
+    out.push(f);}
+  return out;}
+$("pf-add-field").onclick=()=>$("pf-fields-body").appendChild(pfFieldRow({type:"string"}));
+async function loadProfileEditor(){try{
+  const j=await api("/api/profile");
+  if(j.error){$("pf-name").textContent=(j.name||"?")+" (invalid)";
+    $("pf-status").textContent=j.error;return;}
+  $("pf-name").textContent=j.name+(j.is_project_copy?" · project copy":" · built-in");
+  $("pf-query").value=j.default_query||"";
+  $("pf-triage").value=j.triage_prompt||"";
+  $("pf-extract").value=j.extraction_prompt||"";
+  renderFields(j.fields||[]);
+  $("pf-status").textContent="";}catch(e){}}
+$("pf-reload").onclick=loadProfileEditor;
+function pfBody(){return{default_query:$("pf-query").value,
+  triage_prompt:$("pf-triage").value,extraction_prompt:$("pf-extract").value,
+  fields:collectFields()};}
+$("pf-save").onclick=async()=>{
+  await post("/api/profile",pfBody());
+  $("pf-status").textContent="saved ✓";toastOk("Extraction rules saved.");
+  loadProfileEditor();loadProfiles();poll();};
+$("pf-saveas").onclick=async()=>{
+  const name=prompt("Name for the new profile (snake_case, e.g. my_ald):");
+  if(name===null)return;                       // cancelled
+  const j=await post("/api/profile",Object.assign(pfBody(),
+    {new_name:name.trim()}));
+  $("pf-status").textContent="created "+j.name+" ✓";
+  toastOk(`New profile “${j.name}” created and selected.`);
+  cfgDirty=false;                              // config switched server-side
+  loadProfiles();loadProfileEditor();poll();};
+loadProfileEditor();
+
+/* danger zone — reset project data */
+$("reset-btn").onclick=async()=>{
+  const files=$("reset-files").checked;
+  if(!confirm("Reset this project? This clears all harvested papers, recipes, "
+    +"and the manual queue"+(files?", and deletes downloaded files":"")
+    +".\n\nThis cannot be undone."))return;
+  await post("/api/reset",{files});
+  $("reset-files").checked=false;
+  toastOk("Project data reset.");poll();loadManual();loadRecipes();};
+
+/* restore factory settings (config + built-in extraction rules; keeps data) */
+$("factory-btn").onclick=async()=>{
+  if(!confirm("Reset all settings to factory defaults?\n\nProvider, models, "
+    +"search query, extraction rules, and limits go back to what alpminer "
+    +"ships with. Your email, data folder, and all harvested papers and "
+    +"recipes are kept."))return;
+  const j=await post("/api/config/factory-reset",{});
+  cfgDirty=false;
+  await loadProviders();            // rebuild the provider dropdown first
+  if(j.config)fillForm(j.config);   // then apply the default values
+  loadProfileEditor();refreshKeyStatus();
+  $("factory-status").textContent="restored ✓";
+  toastOk("Settings restored to factory defaults."
+    +(j.reverted&&j.reverted.length?" Extraction rules reverted too.":""));
+  poll();};
+
+const form=$("cfgform");
+form.addEventListener("input",()=>cfgDirty=true);
+function fillForm(c){for(const el of form.elements){if(!el.name)continue;
+  if(el.type==="checkbox")el.checked=!!c[el.name];
+  else if(el.type==="radio")el.checked=(c[el.name]===el.value);
+  else el.value=c[el.name]??"";}
+  const ps=c.provider_settings||{};
+  $("ps-base_url").value=ps.base_url??"";$("ps-api_key_env").value=ps.api_key_env??"";
+  modelsState=JSON.parse(JSON.stringify(c.models||{}));
+  modProvider=null;                 // inputs repopulate from modelsState
+  applyProvider(c.provider);cfgDirty=false;}
+$("cfg-reload").onclick=()=>{cfgDirty=false;poll();};
+$("cfg-save").onclick=async()=>{const body={};
+  for(const el of form.elements){if(!el.name)continue;
+    if(el.type==="checkbox")body[el.name]=el.checked;
+    else if(el.type==="radio"){if(el.checked)body[el.name]=el.value;}
+    else if(el.type==="number")body[el.name]=el.value===""?null:+el.value;
+    else body[el.name]=el.value;}
+  /* "Create new profile…" is a UI action, not a config value */
+  if(body.profile==="__new__")delete body.profile;
+  /* provider_settings: keep any existing keys, set/clear base_url & api_key_env
+     from the endpoint inputs (blank removes the key) */
+  const ps=Object.assign({},(state&&state.config&&state.config.provider_settings)||{});
+  const bu=$("ps-base_url").value.trim(),ke=$("ps-api_key_env").value.trim();
+  if(bu)ps.base_url=bu;else delete ps.base_url;
+  if(ke)ps.api_key_env=ke;else delete ps.api_key_env;
+  body.provider_settings=ps;
+  commitModelInputs();
+  body.models=modelsState;
+  const j=await post("/api/config",body);
+  if(j&&j.config)fillForm(j.config);        // reflect exactly what persisted
+  toastOk("Settings saved.");loadProfiles();loadProfileEditor();poll();};
+/* general API-key box — targets the selected provider's env var */
+function keyEnvName(){
+  const p=$("cfg-provider").value;
+  if(p==="anthropic")return "ANTHROPIC_API_KEY";
+  if(p==="openai")return "OPENAI_API_KEY";
+  if(p==="gemini")return "GEMINI_API_KEY";
+  return $("ps-api_key_env").value.trim()||"OPENAI_API_KEY";}
+function updateKeyLabels(){
+  const env=keyEnvName();
+  $("k-provider").textContent=$("cfg-provider").value||"–";
+  $("k-env").textContent="→ "+env;$("k-env3").textContent=env;}
+async function refreshKeyStatus(){
+  const env=keyEnvName();
+  try{const j=await api("/api/keys?env="+encodeURIComponent(env));
+    $("k-status").textContent=j.set?"● set":"○ not set";
+    $("k-status").className="mono "+(j.set?"dot-ok":"dot-no");}catch(e){}}
+function refreshKeyBox(){updateKeyLabels();refreshKeyStatus();}
+$("k-set").onclick=async()=>{
+  await post("/api/keys",{env:keyEnvName(),key:$("k-input").value});
+  $("k-input").value="";refreshKeyStatus();};
+$("k-clear").onclick=async()=>{
+  await post("/api/keys",{env:keyEnvName(),key:""});
+  $("k-input").value="";refreshKeyStatus();};
+$("ps-api_key_env").addEventListener("input",refreshKeyBox);
+refreshKeyBox();
+
+/* console strip */
+$("log-clear").onclick=()=>{$("loglines").textContent="";};
+$("log-min").onclick=()=>{const c=$("console");
+  c.classList.toggle("min");
+  $("log-min").textContent=c.classList.contains("min")?"show":"hide";};
+</script>
+</body>
+</html>
