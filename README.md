@@ -1,5 +1,7 @@
 # ALPminer
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21519943.svg)](https://doi.org/10.5281/zenodo.21519943)
+
 A resumable pipeline that builds a JSON database of structured records from
 the scientific literature. It ships configured for ALD process recipes and
 ALE etch recipes, and an **extraction profile** system lets you retarget it
