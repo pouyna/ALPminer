@@ -1,0 +1,7 @@
+# Shell launchers must keep Unix (LF) line endings even when the repo is
+# checked out or zipped on Windows, or bash refuses to run them.
+*.sh        text eol=lf
+*.command   text eol=lf
+
+# Windows launcher stays CRLF.
+*.bat       text eol=crlf
