@@ -1,0 +1,15 @@
+# virtual environment (the start-gui launchers recreate it)
+.venv/
+
+# pipeline state and downloaded content (per-project data, never published)
+data/
+data_*/
+
+# project-local configuration (contains your contact email)
+alpminer.toml
+
+# python build/cache artifacts
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
