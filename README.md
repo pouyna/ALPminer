@@ -510,3 +510,12 @@ suite, so run the `--limit 25` pilot first and spot-check
 `data/exports/ald_recipes.json` against a few papers you know well (the
 `evidence_location` field makes this fast) before committing budget to a
 large slice.
+
+## Citation
+
+If you use ALPminer in your research, please cite it. Citation metadata is in
+[`CITATION.cff`](CITATION.cff), and GitHub's "Cite this repository" button
+(top-right of the repo page) generates APA and BibTeX from it. Once the
+release is archived on Zenodo, please cite the DOI:
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21519943.svg)](https://doi.org/10.5281/zenodo.21519943)
