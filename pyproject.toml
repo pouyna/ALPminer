@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "alpminer"
-version = "1.0.0"
-description = "Resumable pipeline: harvest literature metadata from OpenAlex, download open-access PDFs, extract process recipes (ALD, ALE, or your own domain) with the LLM provider of your choice, and build a JSON/CSV recipe database."
+version = "2.0.0"
+description = "Resumable pipeline: harvest literature metadata from OpenAlex, download open-access PDFs, extract process recipes (ALD, ALE, or your own domain) with the LLM provider of your choice, normalize units (SI, QUDT) and reactant names (PubChem), and build a JSON/CSV recipe database."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -14,8 +14,8 @@ dependencies = [
     "requests>=2.31",
     "pydantic>=2.5",
     "pymupdf>=1.24",
-    "anthropic>=0.40",
-    "google-genai>=1.0",
+    "anthropic>=2.0",
+    "google-genai>=2.0",
 ]
 
 [project.optional-dependencies]

@@ -405,8 +405,8 @@ def test_config_save_preserves_profile_and_provider_settings(server):
     assert reloaded.provider_settings["base_url"].endswith("11434/v1")
     # per-provider model override survived the unrelated save
     assert reloaded.models_for("anthropic")["extraction"] == "my-custom-model"
-    assert reloaded.models_for("anthropic")["triage"] == "claude-haiku-4-5"
-    assert reloaded.models_for("gemini")["extraction"] == "gemini-2.5-flash"
+    assert reloaded.models_for("anthropic")["triage"] == "claude-haiku-5-5"
+    assert reloaded.models_for("gemini")["extraction"] == "gemini-3.8-flash"
 
 
 # ---- provider dropdown + editable OpenAlex query / prompts --------------------
@@ -504,7 +504,7 @@ def test_create_profile_from_scratch_and_as_copy(server):
     assert r.status_code == 200, r.text
     assert r.json()["copied_from"] == "ale"
     j = requests.get(url + "/api/profile", timeout=TIMEOUT).json()
-    assert j["name"] == "ale_copy" and j["n_fields"] == 27   # ale's fields
+    assert j["name"] == "ale_copy" and j["n_fields"] == 28   # ale's fields
     # both appear in the dropdown list; built-ins untouched
     names = [p["name"] for p in requests.get(
         url + "/api/profiles", timeout=TIMEOUT).json()["profiles"]]
@@ -707,3 +707,23 @@ def test_reset_with_files_wipes_downloads(server):
     r = requests.post(url + "/api/reset", json={"files": True}, timeout=TIMEOUT)
     assert r.status_code == 200
     assert not pdf.exists()
+
+
+
+def test_recipes_csv_leaves_unresolved_list_items_blank(server):
+    url, _, tmp = server
+    cfg = config.load(tmp / config.CONFIG_FILENAME)
+    conn = db.connect(cfg.db_path)
+    paper = make_paper(3, doi="10.1/gui3")
+    db.upsert_paper(conn, paper)
+    db.replace_recipes(conn, paper["id"], [{
+        "material": "ZnO", "additional_reactants": ["O3", "mystery X"],
+        "additional_reactants_name": ["ozone", None],
+        "additional_reactants_formula": ["O3", None],
+        "additional_reactants_cid": [24823, None]}])
+    db.set_fields(conn, paper["id"], extract_status="done")
+    conn.close()
+    r = requests.get(url + "/api/recipes.csv?q=ZnO", timeout=TIMEOUT)
+    text = r.content.decode("utf-8-sig")
+    assert "None" not in text
+    assert "ozone; " in text and "24823; " in text

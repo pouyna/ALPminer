@@ -228,9 +228,9 @@ def _norm(s: str | None) -> str:
 
 
 def _pdf_front_text(path: Path, pages: int = 2) -> str:
-    import fitz
+    from .pdftext import pymupdf_module
     try:
-        doc = fitz.open(path)
+        doc = pymupdf_module().open(path)
         try:
             k = min(pages, doc.page_count)
             return "\n".join(doc[i].get_text("text") for i in range(k))
@@ -294,9 +294,9 @@ def match_paper(conn, f: Path) -> tuple[str | None, str]:
 
 def _pdf_title(path: Path) -> str | None:
     """The PDF's embedded document title, if it has a useful one."""
-    import fitz
+    from .pdftext import pymupdf_module
     try:
-        doc = fitz.open(path)
+        doc = pymupdf_module().open(path)
         try:
             title = ((doc.metadata or {}).get("title") or "").strip()
         finally:

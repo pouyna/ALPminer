@@ -57,12 +57,21 @@ triage_enabled = true
 triage_chars = 20000
 # Character cap on full text sent for extraction (~4 chars/token).
 max_paper_chars = 250000
-# Max output tokens for the extraction call.
-max_output_tokens = 8000
+# Max output tokens for the extraction call. Current models think before
+# answering and that thinking counts toward this limit.
+max_output_tokens = 16000
+# How hard the extraction model reasons: "low" (default; cheapest), "medium",
+# "high", "xhigh", or "max". Triage always runs at "low". Providers or models
+# without reasoning controls ignore it.
+reasoning_effort = "low"
 # Concurrent LLM calls during extraction. 1 = one paper at a time (safest).
 # 3-4 cuts a large run's wall-clock substantially; higher risks provider
 # rate limits (429s are retried, but patience beats hammering).
 extract_workers = 1
+# Look up reactant names that the built-in table does not know on PubChem
+# (adds canonical names and compound IDs; answers are cached in the data
+# folder). Set false to stay offline.
+pubchem_lookup = true
 
 # OCR fallback for scanned PDFs (no text layer). Needs the optional extra:
 #   pip install "alpminer[ocr]"   plus the Tesseract binary on your PATH
@@ -87,20 +96,20 @@ max_pdf_mb = 80
 # switching providers never mixes model names. A plugin provider gets its own
 # [models.<name>] table the same way.
 [models.anthropic]
-extraction = "claude-sonnet-4-6"
-triage = "claude-haiku-4-5"
+extraction = "claude-sonnet-5-5"
+triage = "claude-haiku-5-5"
 
 [models.openai]
-extraction = "gpt-4o"
-triage = "gpt-4o-mini"
+extraction = "gpt-6.1-sol"
+triage = "gpt-6-luna"
 
 [models.gemini]
-extraction = "gemini-2.5-flash"
-triage = "gemini-2.5-flash-lite"
+extraction = "gemini-3.8-flash"
+triage = "gemini-3.5-flash-lite"
 
 [models.openai_compatible]
-extraction = "llama3.1"
-triage = "llama3.1"
+extraction = "qwen3.8"
+triage = "qwen3.8"
 
 # Extra settings passed verbatim to openai_compatible or plugin providers.
 # [provider_settings]
@@ -117,13 +126,25 @@ class ConfigError(RuntimeError):
 # full papers) and one triage model (cheap relevance classifier) per provider,
 # overridable through the [models.<provider>] tables in alpminer.toml.
 DEFAULT_MODELS = {
-    "anthropic": {"extraction": "claude-sonnet-4-6",
-                  "triage": "claude-haiku-4-5"},
-    "openai": {"extraction": "gpt-4o", "triage": "gpt-4o-mini"},
-    "gemini": {"extraction": "gemini-2.5-flash",
-               "triage": "gemini-2.5-flash-lite"},
-    "openai_compatible": {"extraction": "llama3.1", "triage": "llama3.1"},
+    "anthropic": {"extraction": "claude-sonnet-5-5",
+                  "triage": "claude-haiku-5-5"},
+    "openai": {"extraction": "gpt-6.1-sol", "triage": "gpt-6-luna"},
+    "gemini": {"extraction": "gemini-3.8-flash",
+               "triage": "gemini-3.5-flash-lite"},
+    "openai_compatible": {"extraction": "qwen3.8", "triage": "qwen3.8"},
 }
+
+# The pairs alpminer 1.0 shipped. Configs written by 1.0 name them
+# explicitly, so extraction warns when one is still in use (OpenAI retires
+# gpt-4o on 2027-01-14; Gemini 2.5 serves only accounts that used it before).
+PREVIOUS_DEFAULT_MODELS = {
+    "anthropic": {"claude-sonnet-4-6", "claude-haiku-4-5"},
+    "openai": {"gpt-4o", "gpt-4o-mini"},
+    "gemini": {"gemini-2.5-flash", "gemini-2.5-flash-lite"},
+    "openai_compatible": {"llama3.1"},
+}
+
+REASONING_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 
 @dataclass
@@ -139,8 +160,10 @@ class Config:
     triage_enabled: bool = True
     triage_chars: int = 20_000
     max_paper_chars: int = 250_000
-    max_output_tokens: int = 8_000
+    max_output_tokens: int = 16_000
+    reasoning_effort: str = "low"
     extract_workers: int = 1
+    pubchem_lookup: bool = True
     ocr_enabled: bool = True
     ocr_mode: str = "deferred"        # "deferred" | "inline"
     request_delay_s: float = 1.0
@@ -268,7 +291,9 @@ def dump_config(values: dict) -> str:
         f"triage_chars = {int(d['triage_chars'])}",
         f"max_paper_chars = {int(d['max_paper_chars'])}",
         f"max_output_tokens = {int(d['max_output_tokens'])}",
+        f"reasoning_effort = {_toml_str(d['reasoning_effort'] or 'low')}",
         f"extract_workers = {max(1, int(d['extract_workers'] or 1))}",
+        f"pubchem_lookup = {'true' if d['pubchem_lookup'] else 'false'}",
         f"ocr_enabled = {'true' if d['ocr_enabled'] else 'false'}",
         f"ocr_mode = {_toml_str(d['ocr_mode'] or 'deferred')}",
         "",
@@ -372,4 +397,17 @@ def load(config_path: Path | None = None) -> Config:
     if cfg.ocr_mode not in ("inline", "deferred"):
         raise ConfigError(
             f"ocr_mode must be 'inline' or 'deferred', got {cfg.ocr_mode!r}")
+    if cfg.reasoning_effort not in REASONING_EFFORTS:
+        raise ConfigError(
+            f"reasoning_effort must be one of {list(REASONING_EFFORTS)}, "
+            f"got {cfg.reasoning_effort!r}")
     return cfg
+
+
+def outdated_models(cfg: Config) -> list[str]:
+    """Active model names that are alpminer 1.0 defaults with a newer
+    replacement in DEFAULT_MODELS."""
+    old = PREVIOUS_DEFAULT_MODELS.get(cfg.provider, set())
+    pair = cfg.models_for(cfg.provider)
+    roles = ("extraction", "triage") if cfg.triage_enabled else ("extraction",)
+    return sorted({pair.get(r) for r in roles if pair.get(r) in old})

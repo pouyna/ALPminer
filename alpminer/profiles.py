@@ -1,8 +1,12 @@
 """Domain profiles: what to extract, how to ask for it, and how to validate it.
 
 A profile is a TOML file declaring the extraction target for a scientific
-domain: the default literature query, the triage and extraction prompts, the
-record fields (name/type/description/limits), and the unit conventions.
+domain: the default literature query, the triage and extraction prompts, and
+the record fields (name/type/description/limits). A numeric field with a
+``unit`` is a quantity: the model reports the value with the unit the paper
+used and ALPminer converts it (see units.py). A field marked
+``chemical = true`` gets canonical name, formula, and PubChem CID columns
+(see chemistry.py).
 Two profiles ship with the package (``ald``, ``ale``); users add their own by
 dropping ``profiles/<name>.toml`` into the project folder (project profiles
 shadow built-ins of the same name) and setting ``profile = "<name>"`` in
@@ -23,11 +27,16 @@ from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 
+from . import units as _units
+
 FIELD_TYPES = {"string", "number", "integer", "boolean", "array"}
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 RECORD_TOOL_NAME = "record_findings"
 TRIAGE_TOOL_NAME = "triage_result"
+
+# Derived column listing every unit conversion ALPminer made in a record.
+CONVERSIONS_FIELD = "unit_conversions"
 
 
 class ProfileError(RuntimeError):
@@ -43,11 +52,34 @@ class FieldSpec:
     minimum: float | None = None
     maximum: float | None = None
     max_len: int | None = None
+    unit: str | None = None            # canonical unit, e.g. "Pa", "°C"
+    quantity_kind: str | None = None   # QUDT quantity kind, e.g. "Thickness"
+    chemical: bool = False             # normalize to name/formula/CID
+
+    @property
+    def is_quantity(self) -> bool:
+        return bool(self.unit) and self.type in ("number", "integer")
 
     def json_schema(self) -> dict:
+        if self.is_quantity:
+            # the model reports what the paper says; ALPminer converts
+            inner: dict = {
+                "type": ["object", "null"],
+                "properties": {
+                    "value": {"type": "number"},
+                    "unit": {"type": "string",
+                             "description": "The unit exactly as the paper "
+                                            "writes it, e.g. 'Torr', 'K', "
+                                            "'Å/cycle'."},
+                },
+                "required": ["value", "unit"],
+            }
+            desc = (f"{self.description} Give the number with the unit used "
+                    f"in the paper; it is converted to {self.unit}.").strip()
+            inner["description"] = desc
+            return inner
         if self.type == "array":
-            inner: dict = {"type": ["array", "null"],
-                           "items": {"type": "string"}}
+            inner = {"type": ["array", "null"], "items": {"type": "string"}}
         else:
             inner = {"type": [self.type, "null"]}
         if self.type == "string" and self.required:
@@ -73,6 +105,31 @@ class Profile:
     # ---- derived artifacts ----
     def field_names(self) -> list[str]:
         return [f.name for f in self.fields]
+
+    def has_units(self) -> bool:
+        return any(f.unit for f in self.fields)
+
+    def derived_field_names(self) -> list[str]:
+        """Columns ALPminer fills itself (never asked of the model): the
+        unit-conversion log and the name/formula/CID of chemical fields."""
+        from .chemistry import derived_names
+        out = [CONVERSIONS_FIELD] if self.has_units() else []
+        for f in self.fields:
+            if f.chemical:
+                out.extend(derived_names(f.name))
+        return out
+
+    def export_field_names(self) -> list[str]:
+        return self.field_names() + self.derived_field_names()
+
+    def units_metadata(self) -> dict:
+        """Per-field unit description for exports (IUPAC symbol and QUDT
+        IRIs); profiles without field units fall back to their [units]
+        table, as in alpminer 1.x."""
+        if not self.has_units():
+            return dict(self.units)
+        return {f.name: _units.metadata(f.unit, f.quantity_kind)
+                for f in self.fields if f.unit}
 
     def extraction_tool(self) -> dict:
         record_schema = {
@@ -129,10 +186,14 @@ class Profile:
         }
 
     # ---- record validation ----
-    def validate_record(self, raw: dict) -> dict:
+    def validate_record(self, raw: dict,
+                        conversions: list[str] | None = None) -> dict:
         """Coerce and validate one extracted record against the field specs.
         Unknown keys are dropped; missing optional fields become null.
-        Raises ProfileError listing every problem found."""
+        Quantities are converted to their field's unit; each conversion (and
+        each value left null because its unit was unknown) is appended to
+        `conversions` when given. Raises ProfileError listing every problem
+        found."""
         out: dict = {}
         problems: list[str] = []
         for spec in self.fields:
@@ -143,12 +204,97 @@ class Profile:
                 out[spec.name] = None
                 continue
             try:
+                if spec.is_quantity:
+                    value = self._to_unit(spec, value, conversions)
+                    if value is None:
+                        if spec.required:
+                            problems.append(f"{spec.name}: required but "
+                                            "missing (no usable value or "
+                                            "unit)")
+                        out[spec.name] = None
+                        continue
+                elif spec.unit and spec.type == "string":
+                    value = self._range_to_unit(spec, value, conversions)
                 out[spec.name] = self._coerce(spec, value)
             except (TypeError, ValueError) as exc:
                 problems.append(f"{spec.name}: {exc}")
         if problems:
             raise ProfileError("invalid record: " + "; ".join(problems))
         return out
+
+    @staticmethod
+    def _to_unit(spec: FieldSpec, value, conversions):
+        """A quantity as {value, unit}, a '1.5 Torr' string, or a bare
+        number (taken as already in the field's unit) -> number in the
+        field's unit, or None when the unit is unknown."""
+        if isinstance(value, dict):
+            number, unit = value.get("value"), value.get("unit")
+            if number is None or number == "":
+                return None
+        elif isinstance(value, str):
+            parsed = _units.parse_quantity(value)
+            if parsed is None:
+                raise ValueError(f"expected a number with a unit, "
+                                 f"got {value!r}")
+            number, unit = parsed
+        else:
+            return value                 # validated as a number below
+        if isinstance(number, bool) or not isinstance(number, (int, float)):
+            if isinstance(number, str):
+                try:
+                    number = float(number.replace("−", "-"))
+                except ValueError:
+                    raise ValueError(f"expected a number, got {number!r}")
+            else:
+                raise ValueError(f"expected a number, got "
+                                 f"{type(number).__name__}")
+        unit = str(unit).strip() if unit is not None else ""
+        if not unit:
+            # a value reported without its unit is kept in the field's unit,
+            # and the record says so
+            if conversions is not None:
+                conversions.append(f"{spec.name}: {number:g} given without "
+                                   f"a unit; taken as {spec.unit}")
+            return float(number)
+        try:
+            converted = _units.convert(number, unit, spec.unit)
+        except _units.UnitError as exc:
+            if conversions is not None:
+                conversions.append(f"{spec.name}: {number:g} {unit} left "
+                                   f"null ({exc})")
+            return None
+        if conversions is not None and not _units.same_unit(unit, spec.unit):
+            conversions.append(f"{spec.name}: {number:g} {unit} -> "
+                               f"{converted:g} {spec.unit}")
+        return converted
+
+    @staticmethod
+    def _range_to_unit(spec: FieldSpec, value, conversions):
+        """A range string (or a single {value, unit}) -> text in the field's
+        unit; anything that is not a readable range is kept as written."""
+        if isinstance(value, dict):
+            number, unit = value.get("value"), value.get("unit") or ""
+            if number is None or number == "":
+                return None
+            value = f"{number} {unit}".strip()
+            if _units.parse_quantity(value) is not None and not re.search(
+                    r"\d\s*(?:-|–|—|~|to)\s*\d", value):
+                n, u = _units.parse_quantity(value)
+                try:
+                    converted = _units.convert(n, u or None, spec.unit)
+                except _units.UnitError:
+                    return value
+                if conversions is not None and u and not _units.same_unit(
+                        u, spec.unit):
+                    conversions.append(f"{spec.name}: {n:g} {u} -> "
+                                       f"{converted:g} {spec.unit}")
+                return f"{converted:g}"
+        if not isinstance(value, str):
+            return value
+        text, note = _units.normalize_range(value, spec.unit)
+        if note and conversions is not None:
+            conversions.append(f"{spec.name}: {note}")
+        return text
 
     @staticmethod
     def _coerce(spec: FieldSpec, value):
@@ -174,7 +320,7 @@ class Profile:
                 value = max(spec.minimum, value)
             if spec.maximum is not None:
                 value = min(spec.maximum, value)
-            return int(value) if spec.type == "integer" else value
+            return int(round(value)) if spec.type == "integer" else value
         if spec.type == "array":
             if isinstance(value, str):
                 value = [value]
@@ -205,13 +351,42 @@ def _parse(data: dict, source: str) -> Profile:
         if ftype not in FIELD_TYPES:
             raise ProfileError(f"{source}: field {name!r} has unknown type "
                                f"{ftype!r} (use {sorted(FIELD_TYPES)})")
+        unit = (f.get("unit") or "").strip() or None
+        if unit is not None:
+            known = _units.lookup(unit)
+            if known is None:
+                raise ProfileError(f"{source}: field {name!r} has unknown "
+                                   f"unit {unit!r}")
+            if ftype not in ("number", "integer", "string"):
+                raise ProfileError(f"{source}: field {name!r}: a unit needs "
+                                   "a number, integer, or string (range) "
+                                   "field")
+            unit = known.symbol             # store the IUPAC spelling
+        chemical = bool(f.get("chemical", False))
+        if chemical and ftype not in ("string", "array"):
+            raise ProfileError(f"{source}: field {name!r}: chemical = true "
+                               "needs a string or array field")
         specs.append(FieldSpec(
             name=name, type=ftype,
             description=f.get("description", ""),
             required=bool(f.get("required", False)),
             minimum=f.get("minimum"), maximum=f.get("maximum"),
             max_len=f.get("max_len"),
+            unit=unit,
+            quantity_kind=(f.get("quantity_kind") or "").strip() or None,
+            chemical=chemical,
         ))
+    derived = set()
+    for s in specs:
+        if s.chemical:
+            derived.update((f"{s.name}_name", f"{s.name}_formula",
+                            f"{s.name}_cid"))
+    if any(s.unit for s in specs):
+        derived.add(CONVERSIONS_FIELD)
+    clash = sorted(derived & seen)
+    if clash:
+        raise ProfileError(f"{source}: field name(s) {clash} are reserved "
+                           "for columns ALPminer derives itself")
     profile = Profile(
         name=data.get("name", ""),
         label=data.get("label", data.get("name", "")),
@@ -296,6 +471,11 @@ NEW_PROFILE_TEMPLATE = '''\
 # Docs: every [[field]] becomes a column in the database and a slot the LLM
 # must fill. Types: string, number, integer, boolean, array (of strings).
 # Exactly the fields you declare here are extracted, validated, and exported.
+# A number field with `unit = "..."` is a quantity: the model reports the
+# value with the unit the paper uses and alpminer converts it to this unit
+# (SI or IUPAC-accepted symbols: °C, s, Pa, nm, nm/cycle, W, eV, %).
+# `chemical = true` on a string/array field adds canonical name, formula,
+# and PubChem CID columns for it.
 
 name = "{name}"
 label = "{name} records"
@@ -317,15 +497,11 @@ from one journal article for a curated research database.
 1. Extract only results reported by the authors of THIS paper; never values
    cited from other work.
 2. One record per distinct <thing>.
-3. Use the units stated in each field description; convert when the paper
-   uses others. Never guess a value that is not stated; use null.
+3. Report every quantity as a number with the unit the paper uses, without
+   converting it. Never guess a value that is not stated; use null.
 4. evidence_location must be a short pointer (section/table numbers), never
    a quoted passage.
 Record your answer by calling the record_findings tool exactly once."""
-
-[units]
-# purely documentation, written into every export
-temperatures = "degC"
 
 [[field]]
 name = "material"
@@ -336,7 +512,8 @@ description = "The key identity of this record, e.g. a chemical formula."
 [[field]]
 name = "synthesis_temperature_c"
 type = "number"
-description = "Temperature in degrees C. Null if not stated."
+unit = "°C"
+description = "Synthesis temperature. Null if not stated."
 
 [[field]]
 name = "notes"
@@ -431,6 +608,12 @@ def dump_profile(p: Profile) -> str:
             lines.append(f"maximum = {f.maximum}")
         if f.max_len is not None:
             lines.append(f"max_len = {int(f.max_len)}")
+        if f.unit:
+            lines.append(f"unit = {_toml_basic(f.unit)}")
+        if f.quantity_kind:
+            lines.append(f"quantity_kind = {_toml_basic(f.quantity_kind)}")
+        if f.chemical:
+            lines.append("chemical = true")
         if f.description:
             lines.append(f"description = {_toml_basic(f.description)}")
         lines.append("")

@@ -13,7 +13,7 @@ RECIPE_PAYLOAD = {
         "co_reactant": "water",
         "deposition_temperature_c": 200,
         "gpc_as_reported": "0.11 nm/cycle",
-        "gpc_angstrom_per_cycle": None,
+        "gpc_nm_per_cycle": None,
         "confidence": 0.9,
     }],
     "paper_notes": None,
@@ -76,7 +76,10 @@ def test_happy_path_with_triage_and_gpc_backfill(monkeypatch, cfg, conn):
     assert row["extract_status"] == "done"
     stored = db.recipes_for(conn, rec["id"])[0]
     assert stored["material"] == "Al2O3"
-    assert stored["gpc_angstrom_per_cycle"] == 1.1  # backfilled from nm/cycle
+    assert stored["gpc_nm_per_cycle"] == 0.11  # backfilled from the string
+    assert stored["co_reactant_formula"] == "H2O"     # normalized reactant
+    assert stored["co_reactant_cid"] == 962
+    assert stored["metal_precursor_formula"] == "AlMe3"  # from the abbrev
     # raw responses were cached to disk before parsing
     assert (cfg.raw_llm_dir / f"{rec['id']}.json").exists()
 
@@ -174,10 +177,9 @@ def test_deferred_ocr_phase_runs_after_text_papers(monkeypatch, cfg, conn):
     """ocr_mode='deferred': the scanned paper is flagged, every text-layer
     paper is extracted first, then the OCR phase handles the flagged one in
     the same run -- and the result carries text_ocr=1 for the exports."""
-    import fitz
-
     from alpminer import pdftext
 
+    fitz = pdftext.pymupdf_module()
     normal = _ready_paper(cfg, conn, 40)
     scanned = make_paper(41, doi="10.1/e41")     # title: "... part 41"
     db.upsert_paper(conn, scanned)
@@ -320,7 +322,7 @@ def test_extract_with_ale_profile_and_epc_backfill(monkeypatch, cfg, conn):
         "material": "Al2O3", "ale_type": "thermal ALE",
         "modification_reactant": "HF", "removal_reactant": "TMA",
         "epc_as_reported": "0.61 A/cycle at 300 C",
-        "epc_angstrom_per_cycle": None}]}
+        "epc_nm_per_cycle": None}]}
 
     class AleBackend(FakeBackend):
         def call_tool(self, model, system, user_text, tool, max_tokens):
@@ -336,8 +338,10 @@ def test_extract_with_ale_profile_and_epc_backfill(monkeypatch, cfg, conn):
     assert stats["done"] == 1
     stored = db.recipes_for(conn, rec["id"])[0]
     assert stored["removal_reactant"] == "TMA"
-    assert stored["epc_angstrom_per_cycle"] == 0.61
-    assert "gpc_angstrom_per_cycle" not in stored     # ALD fields absent
+    assert stored["epc_nm_per_cycle"] == 0.061
+    assert "gpc_nm_per_cycle" not in stored     # ALD fields absent
+    assert stored["removal_reactant_formula"] == "AlMe3"
+    assert stored["modification_reactant_cid"] == 14917
 
 
 def test_legacy_cached_response_reparses_under_v2(monkeypatch, cfg, conn):
@@ -355,3 +359,102 @@ def test_legacy_cached_response_reparses_under_v2(monkeypatch, cfg, conn):
     stats = extract.run_extract(conn, cfg)
     assert stats["done"] == 1 and silent.calls == []
     assert db.recipes_for(conn, rec["id"])[0]["material"] == "SnO2"
+
+
+def test_quantities_are_converted_end_to_end_and_logged(monkeypatch, cfg,
+                                                       conn):
+    rec = _ready_paper(cfg, conn, 50)
+    payload = {"relevant": True, "records": [{
+        "material": "ZnO", "metal_precursor": "diethyl zinc",
+        "co_reactant": "H2O",
+        "deposition_temperature_c": {"value": 423.15, "unit": "K"},
+        "pressure_pa": {"value": 1.0, "unit": "Torr"},
+        "gpc_nm_per_cycle": {"value": 2.0, "unit": "Å/cycle"},
+        "pulse_metal_s": {"value": 0.02, "unit": "s"}}]}
+    _patch(monkeypatch, FakeBackend(payload=payload))
+    extract.run_extract(conn, cfg)
+    stored = db.recipes_for(conn, rec["id"])[0]
+    assert stored["deposition_temperature_c"] == 150.0
+    assert stored["pressure_pa"] == 133.322
+    assert stored["gpc_nm_per_cycle"] == 0.2
+    assert stored["pulse_metal_s"] == 0.02
+    assert stored["unit_conversions"] == [
+        "deposition_temperature_c: 423.15 K -> 150 °C",
+        "pressure_pa: 1 Torr -> 133.322 Pa",
+        "gpc_nm_per_cycle: 2 Å/cycle -> 0.2 nm/cycle"]
+    assert stored["metal_precursor_formula"] == "ZnEt2"
+    assert stored["metal_precursor_cid"] == 101667988
+
+
+def test_v1_cache_with_old_field_names_reparses_into_si(monkeypatch, cfg,
+                                                        conn):
+    """A raw 1.x extraction cache (Torr, angstrom/cycle) must land in the
+    SI fields without a new LLM call."""
+    rec = _ready_paper(cfg, conn, 51)
+    legacy = {"reports_own_ald_experiment": True, "recipes": [{
+        "material": "Al2O3", "metal_precursor_abbrev": "TMA",
+        "pressure_torr": 1.0, "gpc_angstrom_per_cycle": 1.1}]}
+    (cfg.raw_llm_dir / f"{rec['id']}.json").write_text(json.dumps(legacy))
+    (cfg.raw_llm_dir / f"{rec['id']}.triage.json").write_text(
+        json.dumps({"relevant": True}))
+    silent = FakeBackend()
+    _patch(monkeypatch, silent)
+    extract.run_extract(conn, cfg)
+    stored = db.recipes_for(conn, rec["id"])[0]
+    assert silent.calls == []
+    assert stored["pressure_pa"] == 133.322
+    assert stored["gpc_nm_per_cycle"] == 0.11
+    assert "pressure_torr" not in stored
+    assert stored["metal_precursor_formula"] == "AlMe3"
+
+
+def test_built_in_backends_get_effort_and_a_roomier_triage(monkeypatch, cfg,
+                                                          conn):
+    _ready_paper(cfg, conn, 52)
+    seen = []
+
+    class EffortBackend(FakeBackend):
+        supports_effort = True
+
+        def call_tool(self, model, system, user_text, tool, max_tokens,
+                      effort=None):
+            seen.append((tool["name"], max_tokens, effort))
+            return super().call_tool(model, system, user_text, tool,
+                                     max_tokens)
+
+    cfg.reasoning_effort = "medium"
+    _patch(monkeypatch, EffortBackend())
+    extract.run_extract(conn, cfg)
+    assert seen == [("triage_result", extract.TRIAGE_MAX_TOKENS, "low"),
+                    ("record_findings", cfg.max_output_tokens, "medium")]
+
+
+def test_outdated_default_models_are_flagged(monkeypatch, cfg, conn, caplog):
+    import logging
+    _ready_paper(cfg, conn, 53)
+    cfg.models = {"anthropic": {"extraction": "claude-sonnet-4-6",
+                                "triage": "claude-haiku-4-5"}}
+    _patch(monkeypatch, FakeBackend())
+    with caplog.at_level(logging.WARNING, logger="alpminer"):
+        extract.run_extract(conn, cfg)
+    assert "claude-haiku-4-5, claude-sonnet-4-6" in caplog.text
+    assert "claude-sonnet-5-5" in caplog.text
+
+
+
+def test_triage_truncation_names_triage(monkeypatch, cfg, conn):
+    from alpminer.providers import TRUNCATED
+    rec = _ready_paper(cfg, conn, 60)
+
+    class CutBackend(FakeBackend):
+        def call_tool(self, model, system, user_text, tool, max_tokens):
+            if tool["name"] == "triage_result":
+                raise LLMError(TRUNCATED)
+            return super().call_tool(model, system, user_text, tool,
+                                     max_tokens)
+
+    _patch(monkeypatch, CutBackend())
+    extract.run_extract(conn, cfg)
+    error = db.get_paper(conn, rec["id"])["extract_error"]
+    assert "triage output was cut off" in error
+    assert "max_output_tokens" not in error

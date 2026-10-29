@@ -53,6 +53,7 @@ def cmd_init(args) -> int:
           "profiles new`)")
     print("     and a provider in alpminer.toml, then set the matching key:")
     print("       ANTHROPIC_API_KEY   (console.anthropic.com)")
+    print("       OPENAI_API_KEY      (platform.openai.com)")
     print("       GEMINI_API_KEY      (aistudio.google.com/apikey, free "
           "tier)")
     print("       or openai_compatible / your own plugin -- see README")
@@ -244,7 +245,7 @@ def cmd_providers(args) -> int:
               f"\"{args.name}\"  in alpminer.toml. Extra settings go under "
               "[provider_settings].")
     else:  # list
-        print("built-in: anthropic, gemini, openai_compatible")
+        print("built-in: anthropic, openai, gemini, openai_compatible")
         plugin_dir = Path(base) / providers.PLUGIN_DIR_NAME
         plugins = sorted(p.stem for p in plugin_dir.glob("*.py"))             if plugin_dir.is_dir() else []
         print("plugins:  " + (", ".join(plugins) if plugins else "(none; "
