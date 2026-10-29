@@ -36,10 +36,18 @@ def _clean(text: str) -> str:
     return text.strip()
 
 
-def pdf_to_text(pdf_path: Path) -> str:
-    import fitz  # PyMuPDF; imported lazily so unit tests can stub if needed
+def pymupdf_module():
+    """PyMuPDF under its current name; `import fitz` is deprecated in
+    PyMuPDF 2.x. Imported lazily so unit tests can stub it if needed."""
+    try:
+        import pymupdf
+    except ImportError:                     # PyMuPDF < 1.24.3
+        import fitz as pymupdf
+    return pymupdf
 
-    doc = fitz.open(pdf_path)
+
+def pdf_to_text(pdf_path: Path) -> str:
+    doc = pymupdf_module().open(pdf_path)
     try:
         pages = [page.get_text("text") for page in doc]
     finally:
@@ -64,10 +72,10 @@ def ocr_pdf_to_text(pdf_path: Path, max_pages: int = OCR_MAX_PAGES) -> str:
     for PDFs whose text layer came up empty."""
     import io
 
-    import fitz
     import pytesseract
     from PIL import Image
 
+    fitz = pymupdf_module()
     doc = fitz.open(pdf_path)
     try:
         n = min(doc.page_count, max_pages)

@@ -283,7 +283,8 @@ def _config_dict(cfg: config.Config) -> dict:
     keys = ("email", "profile", "query", "from_year", "to_year", "data_dir",
             "provider", "provider_settings", "models",
             "triage_enabled", "triage_chars",
-            "max_paper_chars", "max_output_tokens", "extract_workers",
+            "max_paper_chars", "max_output_tokens", "reasoning_effort",
+            "extract_workers", "pubchem_lookup",
             "ocr_enabled", "ocr_mode",
             "request_delay_s", "download_timeout_s", "max_pdf_mb")
     out = {k: getattr(cfg, k) for k in keys}
@@ -740,12 +741,25 @@ def make_handler(app: App):
                     "OR p.doi LIKE ? OR p.journal LIKE ?)",
                     [like, like, like, like])
 
+        @staticmethod
+        def _record_upgrader(cfg):
+            """Maps a stored record to the current schema (1.x SI field
+            upgrade, reactant columns); identity if the profile is broken."""
+            from . import export as _export
+            try:
+                prof = profiles.load(cfg.profile, app.base_dir)
+            except profiles.ProfileError:
+                return lambda rec: rec
+            resolver = _export.offline_resolver(cfg)
+            return lambda rec: _export.stored_record(rec, prof, resolver)
+
         def recipes(self) -> dict:
             q = self._query()
             term = (q.get("q") or "").strip()
             limit = max(1, min(200, int(q.get("limit", 50))))
             offset = max(0, int(q.get("offset", 0)))
             cfg = app.load_cfg()
+            upgrade = self._record_upgrader(cfg)
             conn = app.open_conn(cfg)
             try:
                 where, params = self._recipe_where(term)
@@ -764,7 +778,7 @@ def make_handler(app: App):
                     "doi": r["doi"], "title": r["title"],
                     "year": r["year"], "journal": r["journal"],
                     "ocr": bool(r["text_ocr"]),
-                    "recipe": json.loads(r["data"]),
+                    "recipe": upgrade(json.loads(r["data"])),
                 } for r in rows]
                 return {"total": total, "items": items,
                         "offset": offset, "limit": limit}
@@ -779,10 +793,11 @@ def make_handler(app: App):
             term = (self._query().get("q") or "").strip()
             cfg = app.load_cfg()
             try:
-                field_names = profiles.load(cfg.profile,
-                                            app.base_dir).field_names()
+                field_names = profiles.load(
+                    cfg.profile, app.base_dir).export_field_names()
             except profiles.ProfileError:
                 field_names = []
+            upgrade = self._record_upgrader(cfg)
             conn = app.open_conn(cfg)
             try:
                 where, params = self._recipe_where(term)
@@ -798,7 +813,7 @@ def make_handler(app: App):
                 if v is None:
                     return ""
                 if isinstance(v, list):
-                    return "; ".join(str(x) for x in v)
+                    return "; ".join("" if x is None else str(x) for x in v)
                 return v
 
             buf = io.StringIO()
@@ -806,7 +821,7 @@ def make_handler(app: App):
             w.writerow(["paper_id", "doi", "title", "year", "journal", "ocr",
                         *field_names])
             for r in rows:
-                rec = json.loads(r["data"])
+                rec = upgrade(json.loads(r["data"]))
                 w.writerow([r["paper_id"], r["doi"], r["title"], r["year"],
                             r["journal"], bool(r["text_ocr"]),
                             *[cell(rec.get(f)) for f in field_names]])
@@ -868,7 +883,10 @@ def make_handler(app: App):
                                 "required": f.required,
                                 "description": f.description,
                                 "minimum": f.minimum, "maximum": f.maximum,
-                                "max_len": f.max_len} for f in prof.fields],
+                                "max_len": f.max_len, "unit": f.unit,
+                                "quantity_kind": f.quantity_kind,
+                                "chemical": f.chemical}
+                               for f in prof.fields],
                     "is_project_copy": proj.exists()}
 
         def profiles_list(self) -> list[dict]:
@@ -1000,7 +1018,11 @@ def make_handler(app: App):
                         description=str(f.get("description") or "").strip(),
                         required=bool(f.get("required")),
                         minimum=f.get("minimum"), maximum=f.get("maximum"),
-                        max_len=f.get("max_len")))
+                        max_len=f.get("max_len"),
+                        unit=str(f.get("unit") or "").strip() or None,
+                        quantity_kind=(str(f.get("quantity_kind") or "")
+                                       .strip() or None),
+                        chemical=bool(f.get("chemical"))))
                 prof.fields = specs
             if not prof.triage_prompt or not prof.extraction_prompt:
                 self._json({"error": "the triage and extraction prompts "

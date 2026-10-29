@@ -35,7 +35,7 @@ def test_legacy_flat_model_keys_still_load():
     assert cfg.active_triage_model == "gem-y"
     assert cfg.models_for("anthropic")["extraction"] == "claude-x"
     assert cfg.models_for("openai")["extraction"] == "gpt-x"
-    assert cfg.models_for("openai")["triage"] == "gpt-4o-mini"  # default kept
+    assert cfg.models_for("openai")["triage"] == "gpt-6-luna"  # default kept
     # a save rewrites the file in the current format and it round-trips
     cfg2 = config.save_config(tmp / "alpminer.toml",
                               {"email": cfg.email, "models": cfg.models,
@@ -94,3 +94,37 @@ def test_readme_version_matches_package():
         "README's `alpminer --version` example does not match "
         f"alpminer.__version__ ({__version__}) -- update the README"
     )
+
+
+def test_new_settings_load_save_and_validate(tmp_path):
+    from alpminer import config
+    path = tmp_path / "alpminer.toml"
+    config.write_template(path, email="a@b.edu")
+    cfg = config.load(path)
+    assert cfg.reasoning_effort == "low" and cfg.pubchem_lookup is True
+    assert cfg.max_output_tokens == 16000
+    assert cfg.models_for("gemini") == {"extraction": "gemini-3.8-flash",
+                                        "triage": "gemini-3.5-flash-lite"}
+    cfg2 = config.save_config(path, {"email": "a@b.edu",
+                                     "reasoning_effort": "high",
+                                     "pubchem_lookup": False})
+    assert cfg2.reasoning_effort == "high" and cfg2.pubchem_lookup is False
+    path.write_text('email = "a@b.edu"\nreasoning_effort = "extreme"\n',
+                    encoding="utf-8")
+    import pytest
+    with pytest.raises(config.ConfigError, match="reasoning_effort"):
+        config.load(path)
+
+
+def test_outdated_models_lists_v1_defaults_only():
+    from alpminer.config import Config, outdated_models
+    cfg = Config(provider="openai",
+                 models={"openai": {"extraction": "gpt-4o",
+                                    "triage": "gpt-6-luna"}})
+    assert outdated_models(cfg) == ["gpt-4o"]
+    cfg.models = {"openai": {"extraction": "my-fine-tune"}}
+    assert outdated_models(cfg) == []
+    cfg = Config(provider="gemini", triage_enabled=False,
+                 models={"gemini": {"extraction": "gemini-3.8-flash",
+                                    "triage": "gemini-2.5-flash-lite"}})
+    assert outdated_models(cfg) == []          # triage is off

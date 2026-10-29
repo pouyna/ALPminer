@@ -20,11 +20,14 @@ fields and prompts — no code changes. The pipeline:
    into `data/manual_inbox/`, and the tool files them.
 3. **extract** — a cheap **triage** pass ("does this paper report the
    authors' own ALD experiment?") followed by full **recipe extraction**
-   (forced structured tool output, validated with pydantic). Units are
-   normalized: °C, s, Torr, Å/cycle, W, nm. Runs on the LLM provider of
-   your choice — **Anthropic**, **OpenAI**, **Google Gemini**, or any
-   local/OpenAI-compatible server (Ollama, LM Studio, vLLM) — switch with
-   one line in the config, no code changes.
+   (structured tool output, validated with pydantic). The model reports
+   every quantity with the unit the paper used, and ALPminer converts it
+   in code to SI units (°C, s, Pa, nm, nm per cycle, W, eV). Reactant names
+   are mapped to one canonical formula and a PubChem compound ID. See
+   [Units and chemical names](#units-and-chemical-names). Runs on the LLM
+   provider of your choice — **Anthropic**, **OpenAI**, **Google Gemini**,
+   or any local/OpenAI-compatible server (Ollama, LM Studio, vLLM) — switch
+   with one line in the config, no code changes.
 4. **export** — writes `ald_recipes.json` (per-paper, with provenance), plus
    flat `recipes_flat.json` and `recipes_flat.csv`.
 
@@ -73,7 +76,7 @@ scripts for your user once with `Set-ExecutionPolicy -Scope CurrentUser
 RemoteSigned`, then activate again. The launcher and the direct-exe commands
 above both skip this step.
 
-Confirm it worked with `alpminer --version` (it should print `alpminer 1.0.0`).
+Confirm it worked with `alpminer --version` (it should print `alpminer 2.0.0`).
 
 **Troubleshooting: `ModuleNotFoundError: No module named
 'pydantic_core._pydantic_core'`** (or a similar error mentioning `fitz` /
@@ -144,11 +147,25 @@ selected provider.
 
 | | Anthropic | OpenAI | Gemini | OpenAI-compatible (local/other) |
 |---|---|---|---|---|
-| Cost | pay-as-you-go (~$0.02–0.04/paper) | pay-as-you-go | free tier available | free if local (Ollama/LM Studio) |
+| Cost | pay-as-you-go (roughly $0.03–0.07 per extracted paper) | pay-as-you-go | free tier available | free if local (Ollama/LM Studio) |
 | Get a key | [console.anthropic.com](https://console.anthropic.com) → API Keys | [platform.openai.com](https://platform.openai.com) → API keys | [aistudio.google.com/apikey](https://aistudio.google.com/apikey), no credit card | your server's console (none for local) |
 | Env var | `ANTHROPIC_API_KEY` | `OPENAI_API_KEY` | `GEMINI_API_KEY` | `OPENAI_API_KEY` (or set `api_key_env`) |
-| Default models | `claude-sonnet-4-6` / `claude-haiku-4-5` | `gpt-4o` / `gpt-4o-mini` | `gemini-2.5-flash` / `gemini-2.5-flash-lite` | whatever you name |
-| Notes | reference implementation; most tested | uses `api.openai.com` | free tier has a small **daily** request quota ([current limits](https://ai.google.dev/gemini-api/docs/rate-limits)) — fine for pilots, too small for large campaigns | Ollama, LM Studio, vLLM, DeepSeek — any `/v1/chat/completions` server with function calling; set `base_url` under `[provider_settings]` |
+| Default models (extraction / triage) | `claude-sonnet-5-5` / `claude-haiku-5-5` | `gpt-6.1-sol` / `gpt-6-luna` | `gemini-3.8-flash` / `gemini-3.5-flash-lite` | `qwen3.8` / `qwen3.8`, or whatever you name |
+| Notes | reference implementation; most tested | uses the Responses API at `api.openai.com` (GPT-6 models call functions only there) | free tier has a small **daily** request quota ([current limits](https://ai.google.dev/gemini-api/docs/rate-limits)) — fine for pilots, too small for large campaigns | Ollama, LM Studio, vLLM, DeepSeek — any `/v1/chat/completions` server with function calling; set `base_url` under `[provider_settings]` |
+
+The defaults are the current models each provider recommends (checked
+October 2026). Older names keep working while the provider serves them, but
+OpenAI retires `gpt-4o` and `gpt-4o-mini` on 14 January 2027, and since
+September 2026 Google serves the Gemini 2.5 models only to accounts that
+used them before. A project created with ALPminer 1.0 keeps the model names
+written in its `alpminer.toml`, and `alpminer extract` warns when those are
+the 1.0 defaults. Update them under `[models.<provider>]`, or use **Reset
+settings to factory defaults** in the Settings tab.
+
+Current models think before they answer. `reasoning_effort` (default
+`low`) sets how much thinking the extraction model does, and triage always
+runs at `low`. Higher levels cost more output tokens; models without a
+reasoning control ignore the setting.
 
 Keys are pasted exactly as your provider shows them — alpminer makes no
 assumptions about their format. To use Gemini, set `provider = "gemini"` and
@@ -272,9 +289,11 @@ reliably capturable — the dependable one-keystroke flow remains Ctrl+S (or
 the download button) into any watched folder, where the watcher files it
 within seconds.
 
-Roughly 40–55% of the ALD literature has a legal OA copy, so expect a
-substantial manual queue if you truly want *every* article — the pipeline
-runs fine on the OA subset while you work through it incrementally.
+About a third of the ALD literature has a legal open-access copy (36% of
+the articles the default ALD query returns, per OpenAlex in October 2026),
+so expect a substantial manual queue if you truly want *every* article —
+the pipeline runs fine on the OA subset while you work through it
+incrementally.
 
 **Papers not in OpenAlex.** Have a PDF that OpenAlex does not index (a
 preprint, a book chapter, an internal report)? Add it directly:
@@ -308,12 +327,12 @@ alpminer manual restore --all                    # bring them all back
 ## Extraction profiles (ALD, ALE, or your own domain)
 
 A **profile** defines *what* gets extracted: the record fields (name, type,
-description, limits), the triage and extraction prompts, the default
-literature query, and the unit conventions. Built-ins:
+description, limits, unit), the triage and extraction prompts, and the
+default literature query. Built-ins:
 
 - `ald` — deposition recipes (30 fields: precursors, timings, GPC, ...)
-- `ale` — atomic layer etching recipes (27 fields: modification/removal
-  chemistry, EPC, ion energy, synergy, ...)
+- `ale` — atomic layer etching recipes (28 fields: modification/removal
+  chemistry, EPC, etch depth, ion energy, synergy, ...)
 
 Switch with one line in `alpminer.toml` (`profile = "ale"`) or the Settings
 tab. To target a new domain — MOF synthesis, perovskites, anything:
@@ -325,15 +344,19 @@ alpminer profiles new mof_synthesis     # writes profiles/mof_synthesis.toml
 Edit the generated file: each `[[field]]` you declare becomes a slot the LLM
 must fill, a validated database column, and a CSV/JSON export column; the
 two prompts define relevance and extraction rules in your domain's language.
+Give a number field a `unit` (for example `unit = "°C"`) to have ALPminer
+convert whatever unit the paper uses, and mark a reactant field
+`chemical = true` to get canonical name, formula, and PubChem CID columns
+for it (see [Units and chemical names](#units-and-chemical-names)).
 Project profiles shadow built-ins of the same name, so you can also copy and
 tune `ald` itself. `alpminer profiles list` shows everything available.
 
 You don't have to hand-edit TOML: the **Settings** tab has an *Extraction
 rules* editor where you change the OpenAlex query, the triage and extraction
 prompts, and **add, remove, or rename the extracted fields** (name, type,
-required, description) directly in the browser. Saving writes a project copy
-that shadows the built-in, so the 30/27 built-in fields are a starting point,
-not a limit. Changing fields affects future extractions; reset the project (or
+required, unit, description) directly in the browser. Saving writes a project
+copy that shadows the built-in, so the 30/28 built-in fields are a starting
+point, not a limit. Changing fields affects future extractions; reset the project (or
 start a new folder) if you want a clean slate.
 
 **Create a profile under your own name.** Two GUI paths, both ending in a
@@ -367,9 +390,11 @@ the separate *Reset project data* in the Danger zone.
 
 One project = one profile: the database locks to the first profile used, and
 extraction refuses a mismatch with instructions (start a new folder for a
-new domain). Exports carry the profile name, its units block, and a
-versioned schema tag (`alpminer.records.v2`). Raw LLM caches from alpminer
-1.x reparse unchanged.
+new domain). Exports carry the profile name, the unit of every quantity
+field, and a versioned schema tag (`alpminer.records.v3`). Raw LLM caches
+and stored records from alpminer 1.x still load; their non-SI fields are
+renamed and converted on the way (see
+[Units and chemical names](#units-and-chemical-names)).
 
 ## Configuration (`alpminer.toml`)
 
@@ -384,19 +409,22 @@ versioned schema tag (`alpminer.records.v2`). Raw LLM caches from alpminer
 | `[provider_settings]` | empty | free-form table passed to `openai_compatible`/plugin providers (`base_url`, `api_key_env`) |
 | `triage_enabled` | `true` | disable to send everything to extraction |
 | `max_paper_chars` | 250000 | text cap per paper (~62k tokens) |
-| `max_output_tokens` | 8000 | raise if a recipe-dense paper truncates |
+| `max_output_tokens` | 16000 | raise if a recipe-dense paper truncates (thinking counts toward it) |
+| `reasoning_effort` | `"low"` | how much the extraction model thinks: `low`, `medium`, `high`, `xhigh`, or `max` |
+| `extract_workers` | 1 | parallel LLM calls during extraction |
+| `pubchem_lookup` | `true` | look up reactant names the built-in table does not know on PubChem (cached); `false` keeps extraction offline |
 | `request_delay_s` | 1.0 | politeness delay between HTTP requests |
 
 Models are declared per provider, all providers equal:
 
 ```toml
 [models.anthropic]
-extraction = "claude-sonnet-4-6"
-triage = "claude-haiku-4-5"
+extraction = "claude-sonnet-5-5"
+triage = "claude-haiku-5-5"
 
 [models.openai_compatible]        # your local Ollama/vLLM/LM Studio server
-extraction = "llama3.1:70b"
-triage = "llama3.1:8b"
+extraction = "qwen3.8"            # any model your server runs with tool calling
+triage = "qwen3.8"
 ```
 
 (Configs from earlier versions that used flat keys like
@@ -407,10 +435,18 @@ whatever `api_key_env` names), and is never written to disk.
 
 ## Scope and cost expectations
 
-OpenAlex indexes on the order of **80–100k** articles matching "atomic layer
-deposition". A typical article is ~10–15k input tokens, so full-corpus
-extraction is a real budget item (roughly: triage on everything at Haiku
-rates + extraction on the ~60–70% that pass triage at Sonnet rates).
+With the default queries, OpenAlex currently returns about **23,400**
+journal articles for the `ald` profile and about **720** for `ale`, roughly
+**24,000** together (checked October 2026). Counting proceedings, preprints,
+and other work types as well gives about 33,000. The harvester searches
+titles and abstracts. OpenAlex's full-text search matches about 58,000 works
+for the ALD query, since it also counts papers that mention ALD only in
+their body text. The ALD literature adds about 1,100 to 1,350 articles a
+year.
+
+A typical article is ~10–15k input tokens, so full-corpus extraction is a
+real budget item (roughly: triage on everything at Haiku rates + extraction
+on the ~60–70% that pass triage at Sonnet rates).
 `alpminer status` shows the estimated remaining input tokens at any point,
 plus the **actual spend so far** — every provider response's reported token
 usage is accumulated per project (cached re-runs add nothing), so estimate
@@ -431,10 +467,14 @@ consecutive days to work through a large corpus once that quota is hit.
 `carrier_gas`, `deposition_temperature_c`, `temperature_window_c`,
 `precursor_source_temperature_c`, `pulse/purge_metal_s`,
 `pulse/purge_coreactant_s`, `cycle_sequence`, `number_of_cycles`,
-`pressure_torr`, `plasma_power_w`, `plasma_gas`, `gpc_angstrom_per_cycle`,
+`pressure_pa`, `plasma_power_w`, `plasma_gas`, `gpc_nm_per_cycle`,
 `gpc_as_reported`, `film_thickness_nm`, `crystallinity`, `application`,
 `notes`, `evidence_location` (section/table pointer for spot-checking),
-`confidence` (0–1). Every exported record also carries source metadata
+`confidence` (0–1). The field name ends in the unit each value is stored
+in. ALPminer adds derived columns: `unit_conversions` (every conversion it
+made) and, for each reactant field, `_name`, `_formula`, and `_cid` (for
+example `metal_precursor_formula = "AlMe3"`, `metal_precursor_cid =
+16682925`). Every exported record also carries source metadata
 (`paper_id`, `doi`, `title`, `year`, `journal`) plus an **`ocr` boolean**:
 `true` means the paper's text came from OCR rather than the PDF's own text
 layer, so OCR-sourced values can be filtered or double-checked.
@@ -447,13 +487,94 @@ never guessed.
 
 **Derived GPC.** The LLM is told never to infer an unstated value, so a paper
 that gives a film thickness and a cycle count but no growth-per-cycle leaves
-`gpc_angstrom_per_cycle` null. After extraction, the pipeline fills that gap
-deterministically from `film_thickness_nm × 10 ÷ number_of_cycles` (nm → Å)
-and appends an `auto-derived …` provenance note so a computed rate is never
-mistaken for a reported one; `gpc_as_reported` stays empty in that case. A GPC
-the paper actually reports (directly or via `gpc_as_reported`) always wins and
-is never overwritten. The same rule applies to any custom profile that
-declares a rate/thickness/cycles field trio (see `PER_CYCLE_DERIVATIONS`).
+`gpc_nm_per_cycle` null. After extraction, the pipeline fills that gap
+deterministically from `film_thickness_nm ÷ number_of_cycles` and appends an
+`auto-derived …` provenance note so a computed rate is never mistaken for a
+reported one; `gpc_as_reported` stays empty in that case. A GPC the paper
+actually reports (directly or via `gpc_as_reported`) always wins and is
+never overwritten. The same rule gives the `ale` profile its etch per cycle
+from `etch_depth_nm`, and applies to any custom profile that declares a
+rate/thickness/cycles field trio (see `PER_CYCLE_DERIVATIONS`).
+
+## Units and chemical names
+
+ALPminer follows the conventions of the AtomicLimits perspective on AI-ready
+ALD/ALE data ([Poupaki et al., *Chem. Mater.* 2026](https://doi.org/10.1021/acs.chemmater.6c02250)).
+Every quantity carries a value, a unit, and a quantity kind. Chemical names
+follow IUPAC recommendations and are linked to a stable identifier.
+
+**Units.** Each quantity field has one canonical unit, chosen from SI units
+and the units IUPAC accepts for use with them
+([Green Book](https://iupac.org/what-we-do/books/greenbook/)):
+
+| quantity | unit | fields (ald / ale) |
+|---|---|---|
+| temperature | °C | `deposition_temperature_c`, `precursor_source_temperature_c`, `temperature_window_c` / `temperature_c`, `temperature_window_c` |
+| time | s | pulse, purge, and step times |
+| pressure | Pa | `pressure_pa` |
+| growth or etch per cycle | nm/cycle | `gpc_nm_per_cycle` / `epc_nm_per_cycle` |
+| thickness, depth | nm | `film_thickness_nm` / `etch_depth_nm` |
+| power | W | `plasma_power_w` |
+| ion energy | eV | `ion_energy_ev`, `ion_energy_window_ev` |
+| synergy | % | `synergy_percent` |
+
+The model does not convert anything. It reports each quantity as the paper
+states it, for example `{"value": 1.5, "unit": "Torr"}`, and ALPminer
+converts the value in code (K, °F, ms, min, mTorr, mbar, kPa, atm, Å, pm,
+µm, kW, keV, and more). A bias voltage in V counts as an ion energy in eV,
+which holds for singly charged ions. Every conversion is listed in the
+record's `unit_conversions` column, for example `pressure_pa: 1.5 Torr ->
+199.984 Pa`, including rates read from `gpc_as_reported` and values carried
+over from 1.x records. A value whose unit ALPminer cannot read is left null
+with the reason written there, and a value the model gave without any unit
+is kept in the field's unit and flagged there as well. Ranges such as
+`423-573 K` are rewritten in the field's unit (`149.85-299.85`), and any
+words after the unit are kept.
+
+The JSON export describes every quantity field with its IUPAC unit symbol
+and its [QUDT](https://qudt.org/) unit and quantity-kind IRIs:
+
+```json
+"units": {
+  "pressure_pa": {"unit": "Pa",
+                  "qudt_unit": "http://qudt.org/vocab/unit/PA",
+                  "quantity_kind": "http://qudt.org/vocab/quantitykind/Pressure"},
+  "gpc_nm_per_cycle": {"unit": "nm/cycle", "per": "cycle",
+                       "qudt_unit": "http://qudt.org/vocab/unit/NanoM",
+                       "quantity_kind": "http://qudt.org/vocab/quantitykind/Thickness"}
+}
+```
+
+**Chemical names.** Papers name one reactant many ways (diethylzinc,
+diethyl zinc, DEZ, DEZn, Zn(C2H5)2). Each reactant field gains three
+columns. `_formula` is the formula with ligand abbreviations, written the
+way the AtomicLimits database writes it (`AlMe3`, `ZnEt2`, `Ti(NMe2)4`,
+`Hf(NEtMe)4`, `O2 plasma`). `_name` is a canonical name, and `_cid` is the
+PubChem compound ID. The text the model extracted stays in the original
+field. A built-in table covers about 110 common reactants, chosen from those
+the AtomicLimits ALD and ALE databases use most, and every CID in it was
+checked against PubChem. Names outside the table go to PubChem's name search when
+`pubchem_lookup` is on; answers, misses included, are cached in
+`data/pubchem_cache.json`. Only written-out names are sent there, because
+PubChem matches some abbreviations to unrelated compounds and stores several
+records for some precursors. For those, the table decides. `_formula` comes
+from the table only, so a reactant found only on PubChem gets a name and a
+CID.
+
+**Projects from alpminer 1.x.** Version 1 stored pressure in Torr (ALE:
+mTorr) and growth or etch per cycle in Å/cycle, under the fields
+`pressure_torr`, `pressure_mtorr`, `gpc_angstrom_per_cycle`, and
+`epc_angstrom_per_cycle`. Raw LLM caches and stored records with those
+fields are renamed and converted when they are read, so re-running
+`alpminer extract` or `alpminer export` on an old project costs no tokens.
+A profile saved by the 1.x rules editor keeps its own fields, units, and
+prompts, and its records stay in 1.x units (Å/cycle values are shown in
+nm/cycle in the Recipes tab). To move such a project to the 2.0 fields,
+use **Reset settings to factory defaults** for a copy of a built-in. For a
+profile saved under your own name, rename its quantity fields in the rules
+editor (`pressure_pa` with unit Pa, `gpc_nm_per_cycle` with unit nm/cycle).
+Either way the stored records are upgraded when they are exported or shown,
+so nothing has to be extracted again.
 
 ## Failure handling reference
 
@@ -465,6 +586,11 @@ declares a rate/thickness/cycles field trio (see `PER_CYCLE_DERIVATIONS`).
 | scanned PDF (no text layer) | OCR'd automatically when `pip install "alpminer[ocr]"` + Tesseract are present; otherwise flagged `text: failed` in `status` (not silently dropped) |
 | LLM output truncated | marked failed with instruction to raise `max_output_tokens` |
 | LLM returns invalid JSON/fields | raw response already cached; paper marked failed; fix/re-run reparses free |
+| quantity in a unit ALPminer cannot read | value left null, reason written to `unit_conversions`; the rest of the record is kept |
+| model answers without calling the tool | Claude (which cannot be forced to call it) is asked once more in the same run; other providers force the call. Then marked failed and retried next run |
+| model declines a paper (safety refusal) | Claude: marked failed with the refusal category, and for some categories the default extraction model first retries on a fallback model. Other providers: marked failed as "no function call" |
+| triage output cut off | marked failed with a triage-specific message (triage has a fixed 4096-token budget); use another triage model or turn triage off |
+| PubChem unreachable | reactant columns from the built-in table only; lookups stop for the run after three failures |
 | extraction failed papers | automatically retried on the next `alpminer extract` |
 
 ## Development
@@ -475,6 +601,44 @@ python -m pytest tests/     # offline (network + LLM calls are mocked) except
                             # one real-browser smoke test, which skips itself
                             # when no working headless browser is found
 ```
+
+## Release notes (v2.0.0)
+
+This release brings the models up to date and normalizes units and reactant
+names following the AtomicLimits perspective (Poupaki et al., *Chem. Mater.*
+2026), which cites ALPminer 1.0. The export schema is now
+`alpminer.records.v3`.
+
+- **Current models.** New defaults for every provider: Claude Sonnet 5.5
+  and Haiku 5.5, GPT-6.1 Sol and GPT-6 Luna, Gemini 3.8 Flash and 3.5
+  Flash-Lite, and Qwen3.8 for local servers. The OpenAI provider now uses
+  the Responses API, which GPT-6 models need for function calls. The Claude
+  backend no longer forces the tool call (the newest Claude models reject
+  that), asks once more when a model answers without it, streams responses,
+  reports refusals, and retries overloaded and unavailable errors. A new
+  `reasoning_effort` setting (default `low`) sets how much the extraction
+  model thinks, and triage has room for brief thinking. `max_output_tokens`
+  now defaults to 16000. Extraction warns when a config still names the 1.0
+  default models.
+- **SI units, converted in code.** Quantities are stored in SI units or
+  units IUPAC accepts (°C, s, Pa, nm, nm/cycle, W, eV, %). The model
+  reports each value with the unit the paper used, and ALPminer converts it
+  and lists every conversion in `unit_conversions`. `pressure_torr` and
+  `pressure_mtorr` became `pressure_pa`, and `gpc_angstrom_per_cycle` and
+  `epc_angstrom_per_cycle` became `gpc_nm_per_cycle` and
+  `epc_nm_per_cycle`. Exports describe each quantity with its QUDT unit and
+  quantity kind. Caches and records from 1.x are converted when read.
+- **Reactant names.** Precursor, co-reactant, and etchant fields gain
+  canonical name, AtomicLimits-style formula, and PubChem CID columns, from
+  a checked built-in table of about 110 reactants and an optional cached
+  PubChem lookup (`pubchem_lookup`).
+- **ALE profile.** A new `etch_depth_nm` field lets etch per cycle be
+  derived from depth and cycle count, as GPC is for ALD.
+- **Corrections.** The literature size above now matches OpenAlex (about
+  24,000 ALD and ALE journal articles for the default queries, where 1.0
+  said 80–100k), and so does the open-access share (about a third).
+  `alpminer providers list` names the OpenAI provider, and PyMuPDF is
+  imported under its current name.
 
 ## Release notes (v1.0.0)
 

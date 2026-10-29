@@ -470,8 +470,8 @@ legend{font:600 11px var(--sans);letter-spacing:.06em;text-transform:uppercase;
       <div class="legend" id="r-mats" style="margin-top:8px"></div>
     </div>
     <div class="card" style="margin-top:14px">
-      <table><thead><tr><th>Material</th><th>Precursor / co-reactant</th>
-        <th>T (°C)</th><th>GPC (Å/cy)</th><th>Conf.</th><th>Source</th></tr></thead>
+      <table><thead><tr><th>Material</th><th>Reactants</th>
+        <th>T (°C)</th><th title="growth or etch per cycle">GPC / EPC (nm/cycle)</th><th>Conf.</th><th>Source</th></tr></thead>
       <tbody id="r-rows"></tbody></table>
       <div class="empty" id="r-empty" style="display:none">No recipes yet.
         Run the pipeline, then extract.</div>
@@ -540,14 +540,28 @@ legend{font:600 11px var(--sans);letter-spacing:.06em;text-transform:uppercase;
           <label><span>Triage characters</span><input name="triage_chars" type="number" min="1000"></label>
           <label><span>Max paper characters</span><input name="max_paper_chars" type="number" min="10000"></label>
           <label><span>Max output tokens</span><input name="max_output_tokens" type="number" min="500"></label>
+          <label><span>Reasoning effort (extraction)</span>
+            <select name="reasoning_effort">
+              <option value="low">low (cheapest)</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="xhigh">xhigh</option>
+              <option value="max">max</option>
+            </select></label>
           <label><span>Parallel LLM calls</span><input name="extract_workers" type="number" min="1" max="8"></label>
+          <label class="check"><input type="checkbox" name="pubchem_lookup"> look up unknown reactants on PubChem</label>
           <label class="check"><input type="checkbox" name="ocr_enabled"> OCR scanned PDFs</label>
           <label class="gx-span2"><span>OCR timing</span>
             <select name="ocr_mode">
               <option value="deferred">after text-based papers (deferred)</option>
               <option value="inline">as they appear (inline)</option>
             </select></label>
-          <p class="hint gx-hint">Parallel calls: 1 is safest; 3–4 is much
+          <p class="hint gx-hint">Reasoning effort sets how long the
+            extraction model thinks (triage always runs at low); higher costs
+            more output tokens. PubChem lookup adds canonical names and
+            compound IDs for reactants the built-in table does not know;
+            answers are cached in the data folder.
+            Parallel calls: 1 is safest; 3–4 is much
             faster on big runs. OCR needs
             <span class="mono">pip install "alpminer[ocr]"</span> plus
             Tesseract; deferred OCR flags scans, finishes every normal paper
@@ -610,7 +624,9 @@ legend{font:600 11px var(--sans);letter-spacing:.06em;text-transform:uppercase;
       <div style="overflow-x:auto">
         <table id="pf-fields-table" style="min-width:640px"><thead><tr>
           <th style="width:13em">Name</th><th style="width:6.5em">Type</th>
-          <th style="width:5em">Required</th><th>Description</th><th></th>
+          <th style="width:5em">Required</th>
+          <th style="width:6em" title="canonical unit for a number field, e.g. °C, s, Pa, nm, nm/cycle, W, eV, %; the model's value is converted to it">Unit</th>
+          <th>Description</th><th></th>
         </tr></thead><tbody id="pf-fields-body"></tbody></table>
       </div>
       <div class="row" style="margin-top:6px">
@@ -1064,11 +1080,17 @@ async function loadRecipes(){
   $("r-empty").style.display=j.total?"none":"block";
   for(const it of j.items){const r=it.recipe,tr=document.createElement("tr");
     tr.className="click";
+    const pick=k=>r[k+"_formula"]||r[k+"_abbrev"]||r[k];
+    /* per-cycle rate in nm/cycle; profiles written by alpminer 1.x still
+       store angstrom/cycle under the old names */
+    const ang=r.gpc_angstrom_per_cycle??r.epc_angstrom_per_cycle;
+    const rate=r.gpc_nm_per_cycle??r.epc_nm_per_cycle??
+      (typeof ang==="number"?+(ang/10).toPrecision(6):"");
     const cells=[r.material,
-      [r.metal_precursor_abbrev||r.metal_precursor,
-       r.co_reactant_abbrev||r.co_reactant].filter(Boolean).join(" + "),
-      r.deposition_temperature_c??"",
-      r.gpc_angstrom_per_cycle??"",
+      [pick("metal_precursor")||pick("modification_reactant"),
+       pick("co_reactant")||pick("removal_reactant")].filter(Boolean).join(" + "),
+      r.deposition_temperature_c??r.temperature_c??"",
+      rate,
       r.confidence!=null?r.confidence.toFixed(2):"",
       `${it.journal||""} ${it.year||""}`];
     for(const v of cells){const td=document.createElement("td");
@@ -1239,6 +1261,7 @@ function pfFieldRow(f){
   f=f||{};const tr=document.createElement("tr");
   tr.dataset.min=(f.minimum??"");tr.dataset.max=(f.maximum??"");
   tr.dataset.maxlen=(f.max_len??"");
+  tr.dataset.qkind=(f.quantity_kind??"");tr.dataset.chem=f.chemical?"1":"";
   const name=document.createElement("input");name.className="pf-fname mono";
   name.value=f.name||"";name.placeholder="field_name";name.style.width="12em";
   const type=document.createElement("select");type.className="pf-ftype";
@@ -1247,12 +1270,14 @@ function pfFieldRow(f){
   type.value=PF_TYPES.includes(f.type)?f.type:"string";
   const req=document.createElement("input");req.type="checkbox";
   req.className="pf-freq";req.checked=!!f.required;
+  const unit=document.createElement("input");unit.className="pf-funit mono";
+  unit.value=f.unit||"";unit.placeholder="–";unit.style.width="5.5em";
   const desc=document.createElement("input");desc.className="pf-fdesc";
   desc.value=f.description||"";desc.style.width="100%";
   desc.placeholder="what the model should put here (units, examples)";
   const del=document.createElement("button");del.type="button";del.className="ghost";
   del.textContent="×";del.title="remove field";del.onclick=()=>tr.remove();
-  [name,type,req,desc,del].forEach(el=>{const td=document.createElement("td");
+  [name,type,req,unit,desc,del].forEach(el=>{const td=document.createElement("td");
     td.appendChild(el);tr.appendChild(td);});
   return tr;}
 function renderFields(fields){const b=$("pf-fields-body");b.textContent="";
@@ -1267,6 +1292,9 @@ function collectFields(){const out=[],num=v=>(v===""||v==null)?null:Number(v);
     if(tr.dataset.min!=="")f.minimum=num(tr.dataset.min);
     if(tr.dataset.max!=="")f.maximum=num(tr.dataset.max);
     if(tr.dataset.maxlen!=="")f.max_len=num(tr.dataset.maxlen);
+    const u=tr.querySelector(".pf-funit").value.trim();if(u)f.unit=u;
+    if(tr.dataset.qkind)f.quantity_kind=tr.dataset.qkind;
+    if(tr.dataset.chem)f.chemical=true;
     out.push(f);}
   return out;}
 $("pf-add-field").onclick=()=>$("pf-fields-body").appendChild(pfFieldRow({type:"string"}));

@@ -12,6 +12,7 @@ from alpminer.config import Config  # noqa: E402
 @pytest.fixture
 def cfg(tmp_path) -> Config:
     c = Config(email="test@example.edu", base_dir=tmp_path)
+    c.pubchem_lookup = False        # tests stay offline; PubChem is mocked
     c.ensure_dirs()
     return c
 

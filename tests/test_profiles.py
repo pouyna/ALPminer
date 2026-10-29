@@ -20,8 +20,8 @@ def test_ale_profile_has_etch_fields():
     p = profiles.load("ale")
     names = p.field_names()
     assert {"modification_reactant", "removal_reactant",
-            "epc_angstrom_per_cycle", "ion_energy_ev",
-            "synergy_percent"} <= set(names)
+            "epc_nm_per_cycle", "etch_depth_nm", "ion_energy_ev",
+            "synergy_percent", "pressure_pa"} <= set(names)
     rec = p.validate_record({"material": "Al2O3", "ale_type": "thermal ALE",
                              "epc_as_reported": "0.61 A/cycle"})
     assert rec["material"] == "Al2O3"
@@ -85,3 +85,55 @@ def test_malformed_profiles_fail_with_clear_messages(tmp_path, body, msg):
     (pdir / "bad.toml").write_text(body, encoding="utf-8")
     with pytest.raises(profiles.ProfileError, match=msg):
         profiles.load("bad", tmp_path)
+
+
+@pytest.mark.parametrize("field,msg", [
+    ("name='a'\nrequired=true\n[[field]]\nname='p'\ntype='number'\n"
+     "unit='furlong'", "unknown unit"),
+    ("name='a'\nrequired=true\n[[field]]\nname='p'\ntype='boolean'\n"
+     "unit='Pa'", "a unit needs"),
+    ("name='a'\nrequired=true\n[[field]]\nname='p'\ntype='number'\n"
+     "chemical=true", "chemical = true"),
+    ("name='a'\nrequired=true\nchemical=true\n[[field]]\nname='a_cid'",
+     "reserved"),
+])
+def test_unit_and_chemical_keys_are_validated(tmp_path, field, msg):
+    pdir = profiles.project_profile_dir(tmp_path)
+    pdir.mkdir(parents=True)
+    (pdir / "bad.toml").write_text(
+        "name = 'x'\ntriage_prompt='t'\nextraction_prompt='e'\n[[field]]\n"
+        + field, encoding="utf-8")
+    with pytest.raises(profiles.ProfileError, match=msg):
+        profiles.load("bad", tmp_path)
+
+
+def test_unit_is_stored_with_its_iupac_spelling_and_round_trips(tmp_path):
+    pdir = profiles.project_profile_dir(tmp_path)
+    pdir.mkdir(parents=True)
+    (pdir / "q.toml").write_text(
+        "name = 'q'\ntriage_prompt='t'\nextraction_prompt='e'\n"
+        "[[field]]\nname='m'\nrequired=true\nchemical=true\n"
+        "[[field]]\nname='t_c'\ntype='number'\nunit='degC'\n"
+        "[[field]]\nname='gpc'\ntype='number'\nunit='nm/cycle'\n"
+        "quantity_kind='Thickness'\n", encoding="utf-8")
+    p = profiles.load("q", tmp_path)
+    assert p.fields[1].unit == "°C"
+    profiles.write_profile(tmp_path, p)
+    again = profiles.load("q", tmp_path)
+    assert [(f.unit, f.quantity_kind, f.chemical) for f in again.fields] == [
+        (None, None, True), ("°C", None, False),
+        ("nm/cycle", "Thickness", False)]
+    assert again.derived_field_names() == [
+        "unit_conversions", "m_name", "m_formula", "m_cid"]
+
+
+def test_profile_without_units_keeps_its_units_table(tmp_path):
+    pdir = profiles.project_profile_dir(tmp_path)
+    pdir.mkdir(parents=True)
+    (pdir / "old.toml").write_text(
+        "name = 'old'\ntriage_prompt='t'\nextraction_prompt='e'\n"
+        "[units]\ntemperatures = 'degC'\n[[field]]\nname='m'\nrequired=true\n",
+        encoding="utf-8")
+    p = profiles.load("old", tmp_path)
+    assert p.units_metadata() == {"temperatures": "degC"}
+    assert p.derived_field_names() == []
