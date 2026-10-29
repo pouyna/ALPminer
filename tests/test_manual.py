@@ -57,7 +57,7 @@ def test_ingest_rejects_fake_pdf(cfg, conn):
 
 # ---- content-based matching (v1.1) -----------------------------------------
 
-import fitz
+import pymupdf as fitz
 
 from alpminer import manual as manual_mod
 

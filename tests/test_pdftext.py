@@ -1,4 +1,4 @@
-import fitz
+import pymupdf as fitz
 
 from alpminer import db, pdftext
 from alpminer.pdftext import ensure_text, pdf_to_text

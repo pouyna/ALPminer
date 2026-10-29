@@ -7,8 +7,8 @@ abstract: >-
   into AI-ready datasets, using the LLM provider of your choice through a
   no-code web dashboard.
 type: software
-version: 1.0.0
-date-released: "2026-07-23"
+version: 2.0.0
+date-released: "2026-10-29"
 license: MIT
 authors:
   - family-names: Navabi

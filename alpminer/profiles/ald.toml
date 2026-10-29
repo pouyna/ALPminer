@@ -1,4 +1,9 @@
 # Built-in profile: ALD process recipes (atomic layer deposition)
+#
+# Quantities (fields with a `unit`) are stored in SI units or units IUPAC
+# accepts for use with them, and exports describe each with its QUDT unit
+# and quantity kind. Reactant fields marked `chemical = true` gain canonical
+# name, formula, and PubChem CID columns.
 
 name = "ald"
 label = "ALD recipes"
@@ -29,10 +34,12 @@ pair + reactor). If a parameter was systematically varied (e.g. a \
 temperature series), report the range in temperature_window_c and the stated \
 optimal or most-used value in deposition_temperature_c; do not create one \
 record per point in a parameter sweep.
-3. Use the required units: temperatures in degrees C, times in seconds, \
-pressure in Torr, growth per cycle in angstrom/cycle, plasma power in W, \
-thickness in nm. Convert when the paper uses other units (K, mbar, Pa, \
-nm/cycle). Preserve the original wording in the *_as_reported / notes fields.
+3. Report every quantity as the number together with the unit exactly as \
+the paper states it, for example {"value": 0.11, "unit": "nm/cycle"}, \
+{"value": 1.5, "unit": "Torr"}, or {"value": 473, "unit": "K"}. Do not \
+convert units yourself; the database converts them. Write ranges with their \
+unit, e.g. '150-300 °C'. Preserve the original wording in the *_as_reported \
+and notes fields.
 4. Never guess or infer a value that is not stated; use null. Do not copy \
 values from the paper's citations of other work.
 5. evidence_location must be a short pointer (section/table/figure numbers), \
@@ -43,14 +50,6 @@ record is reported.
 records list.
 
 Record your answer by calling the record_findings tool exactly once."""
-
-[units]
-temperatures = "degC"
-times = "s"
-pressure = "Torr"
-growth_per_cycle = "angstrom/cycle"
-plasma_power = "W"
-film_thickness = "nm"
 
 [[field]]
 name = "material"
@@ -66,6 +65,7 @@ description = "Deposition variant: 'thermal ALD', 'PEALD', 'spatial ALD', 'photo
 [[field]]
 name = "metal_precursor"
 type = "string"
+chemical = true
 description = "Main metal/semimetal precursor, full chemical name as written by the authors, e.g. 'trimethylaluminum'."
 
 [[field]]
@@ -76,6 +76,7 @@ description = "Common abbreviation if given, e.g. 'TMA', 'TDMAT', 'TEMAH', 'TiCl
 [[field]]
 name = "co_reactant"
 type = "string"
+chemical = true
 description = "Co-reactant / second precursor, e.g. 'water', 'ozone', 'O2 plasma', 'NH3', 'H2S'."
 
 [[field]]
@@ -86,6 +87,7 @@ description = "Abbreviation if any, e.g. 'H2O', 'O3'."
 [[field]]
 name = "additional_reactants"
 type = "array"
+chemical = true
 description = "Extra precursors/reactants for doped films or supercycles; null if none."
 
 [[field]]
@@ -106,37 +108,44 @@ description = "Carrier/purge gas and flow if stated, e.g. 'N2, 20 sccm'."
 [[field]]
 name = "deposition_temperature_c"
 type = "number"
-description = "Substrate/deposition temperature in degrees C. If a series was studied, put the stated optimal/typical value here and the full range in temperature_window_c. Convert K to C. Null if not stated."
+unit = "°C"
+description = "Substrate/deposition temperature. If a series was studied, put the stated optimal/typical value here and the full range in temperature_window_c. Null if not stated."
 
 [[field]]
 name = "temperature_window_c"
 type = "string"
-description = "Temperature range studied or stated ALD window, in C, e.g. '150-300'."
+unit = "°C"
+description = "Temperature range studied or stated ALD window, written with its unit, e.g. '150-300 °C' or '423-573 K'."
 
 [[field]]
 name = "precursor_source_temperature_c"
 type = "number"
-description = "Precursor bubbler/source temperature in C, if stated."
+unit = "°C"
+description = "Precursor bubbler/source temperature, if stated."
 
 [[field]]
 name = "pulse_metal_s"
 type = "number"
-description = "Metal-precursor pulse (dose) time in seconds."
+unit = "s"
+description = "Metal-precursor pulse (dose) time."
 
 [[field]]
 name = "purge_metal_s"
 type = "number"
-description = "Purge time after the metal-precursor pulse, seconds."
+unit = "s"
+description = "Purge time after the metal-precursor pulse."
 
 [[field]]
 name = "pulse_coreactant_s"
 type = "number"
-description = "Co-reactant pulse time in seconds (for PEALD, the plasma exposure time)."
+unit = "s"
+description = "Co-reactant pulse time (for PEALD, the plasma exposure time)."
 
 [[field]]
 name = "purge_coreactant_s"
 type = "number"
-description = "Purge time after the co-reactant step, seconds."
+unit = "s"
+description = "Purge time after the co-reactant step."
 
 [[field]]
 name = "cycle_sequence"
@@ -149,14 +158,16 @@ type = "integer"
 description = "Number of ALD cycles for the main reported film."
 
 [[field]]
-name = "pressure_torr"
+name = "pressure_pa"
 type = "number"
-description = "Reactor operating pressure in Torr (convert: 1 mbar = 0.750 Torr, 1 Pa = 0.0075 Torr)."
+unit = "Pa"
+description = "Reactor operating pressure during deposition."
 
 [[field]]
 name = "plasma_power_w"
 type = "number"
-description = "Plasma power in W (PEALD only)."
+unit = "W"
+description = "Plasma power (PEALD only)."
 
 [[field]]
 name = "plasma_gas"
@@ -164,19 +175,23 @@ type = "string"
 description = "Plasma gas/mixture (PEALD only), e.g. 'O2', 'N2/H2'."
 
 [[field]]
-name = "gpc_angstrom_per_cycle"
+name = "gpc_nm_per_cycle"
 type = "number"
-description = "Growth per cycle in angstrom/cycle (convert nm/cycle by x10)."
+unit = "nm/cycle"
+quantity_kind = "Thickness"
+description = "Growth per cycle (film thickness deposited per ALD cycle)."
 
 [[field]]
 name = "gpc_as_reported"
 type = "string"
-description = "GPC exactly as reported with units, e.g. '0.11 nm/cycle at 200 C'."
+description = "GPC exactly as reported with units, e.g. '0.11 nm/cycle at 200 °C'."
 
 [[field]]
 name = "film_thickness_nm"
 type = "number"
-description = "Final film thickness in nm for the main sample."
+unit = "nm"
+quantity_kind = "Thickness"
+description = "Final film thickness for the main sample."
 
 [[field]]
 name = "crystallinity"
